@@ -75,12 +75,16 @@ namespace DWIS.Service.WOBCorrections.Model
         readonly double _maxCorrCondition;
         readonly List<int[]> _candidatePartitions;
         readonly Queue<double[]> _xHistory = new();
+        readonly Queue<double> _yHistory = new();
         int[] _groupOf;
         int[] _groupSizes;
         int _activeDim;
         int _updateCount;
         double[] _betaActive;
         double[,] _pActive;
+        public double ResidualMean { get; private set; } = 0.0;
+        public double ResidualStdDev { get; private set; } = double.NaN;
+        public int ResidualCount { get; private set; } = 0;
 
         public Rls(int dim, double lambda = 0.995, double p0 = 1e6, double huberK = 1.5, double sigmaAlpha = 0.02)
         {
@@ -126,7 +130,7 @@ namespace DWIS.Service.WOBCorrections.Model
 
         public (double yhat, double residual, double w) Update(double[] x, double y)
         {
-            AddHistory(x);
+            AddHistory(x, y);
             _updateCount++;
             if (_updateCount % _adaptEvery == 0)
             {
@@ -183,16 +187,19 @@ namespace DWIS.Service.WOBCorrections.Model
             }
             _pActive = newP;
             SyncPublicState();
+            ComputeModelUncertainty();
 
             return (yhat, e, w);
         }
 
-        void AddHistory(double[] x)
+        void AddHistory(double[] x, double y)
         {
             _xHistory.Enqueue((double[])x.Clone());
+            _yHistory.Enqueue(y);
             while (_xHistory.Count > _historyLength)
             {
                 _xHistory.Dequeue();
+                _yHistory.Dequeue();
             }
         }
 
@@ -373,6 +380,43 @@ namespace DWIS.Service.WOBCorrections.Model
 
         static string PartitionSignature(int[] partition) => string.Join(",", partition);
 
+        void ComputeModelUncertainty()
+        {
+            var xs = _xHistory.ToArray();
+            var ys = _yHistory.ToArray();
+            int n = Math.Min(xs.Length, ys.Length);
+
+            if (n <= 0)
+            {
+                ResidualCount = 0;
+                ResidualMean = 0.0;
+                ResidualStdDev = double.NaN;
+                return;
+            }
+
+            double sum = 0.0;
+            var residuals = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                double r = ys[i] - Predict(xs[i]);
+                residuals[i] = r;
+                sum += r;
+            }
+
+            double mean = sum / n;
+            double var = 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                double d = residuals[i] - mean;
+                var += d * d;
+            }
+
+            var /= Math.Max(1, n - 1);
+            ResidualCount = n;
+            ResidualMean = mean;
+            ResidualStdDev = Math.Sqrt(Math.Max(0.0, var));
+        }
+
         static List<int[]> GeneratePartitions(int dim)
         {
             var result = new List<int[]>();
@@ -491,14 +535,27 @@ namespace DWIS.Service.WOBCorrections.Model
         // f_dl(z,sign) on [1, z, sign(dz)]
         static readonly Rls RlsFdl_WithTd = new(3, LambdaArtifacts, P0, huberK: 1.5);
 
-        // Artifacts without instrumented sub, using downhole tension:
-        // Model y = f_p(z,Q) + γ1Δh + γ2ρΔh + γ3ρ(l-l_p)Q^2
-        // x = [1,z,z^2,Q,Q^2,zQ, Δh, ρΔh, ρ(l-l_p)Q^2]
-        static readonly Rls RlsFp_NoTd = new(9, LambdaArtifacts, P0, huberK: 1.5);
+        // Unconnected (in-slips) calibrations:
+        // b_d = Td
+        static readonly Rls RlsBd = new(1, LambdaArtifacts, P0, huberK: 1.5);
+        // d0 + d1 z + d2 sign(dz) = Tdl
+        static readonly Rls RlsFdl_Unconnected = new(3, LambdaArtifacts, P0, huberK: 1.5);
+        // c0 + c1 z + c2 z^2 = Tp (Q=0 in unconnected)
+        static readonly Rls RlsFp_Unconnected = new(3, LambdaArtifacts, P0, huberK: 1.5);
 
-        // Deadline: y = f_dl(z,sign) + γ1Δh + γ2ρΔh + γ3ρ(l-l_p)Q^2
-        // x = [1,z,sign, Δh, ρΔh, ρ(l-l_p)Q^2]
-        static readonly Rls RlsFdl_NoTd = new(6, LambdaArtifacts, P0, huberK: 1.5);
+        // Shared gamma model in connected conditions:
+        // Td - b_d - TBHA = γ1Δh + γ2ρΔh + γ3ρ(l-l_p)Q^2
+        // x = [Δh, ρΔh, ρ(l-l_p)Q^2]
+        static readonly Rls RlsGamma = new(3, LambdaArtifacts, P0, huberK: 1.5);
+
+        // Artifacts without instrumented sub, after removing shared gamma contribution:
+        // Tp - TBHA - γ1Δh - γ2ρΔh - γ3ρ(l-l_p)Q^2 = f_p(z,Q)
+        // x = [1,z,z^2,Q,Q^2,zQ]
+        static readonly Rls RlsFp_NoTd = new(6, LambdaArtifacts, P0, huberK: 1.5);
+
+        // Tdl - TBHA - γ1Δh - γ2ρΔh - γ3ρ(l-l_p)Q^2 = f_dl(z,sign)
+        // x = [1,z,sign]
+        static readonly Rls RlsFdl_NoTd = new(3, LambdaArtifacts, P0, huberK: 1.5);
 
         static readonly List<SurfaceSample> Surface = new(capacity: 50000);
 
@@ -506,6 +563,9 @@ namespace DWIS.Service.WOBCorrections.Model
         static bool _wasOnBottom = false;
         static double? _storedSurfaceWob = null;
         static int _logCounter = 0;
+        static double? _initialBd = null;
+        static double? _initialC0 = null;
+        static double? _initialD0 = null;
 
         public static void Process(
             ILogger<IDWISWorker<ConfigurationForWOBCorrection>>? logger,
@@ -527,6 +587,9 @@ namespace DWIS.Service.WOBCorrections.Model
             double MaxRelTMad = ConfigurationForWOBCorrection.MaxRelTMadDefault;
             double MaxDepthMad = ConfigurationForWOBCorrection.MaxDepthMadDefault;
             double MinVelocityForMotion = ConfigurationForWOBCorrection.MinVelocityForMotionDefault;
+            double FactorThresholdInSlips = ConfigurationForWOBCorrection.FactorThresholdInSlipsDefault;
+            double DeltaTensionInSlips = ConfigurationForWOBCorrection.DeltaTensionInSlipsDefault;
+            double MinDistanceInSlips = ConfigurationForWOBCorrection.MinDistanceInSlipsDefault;
 
             if (configuration is not null)
             {
@@ -539,6 +602,9 @@ namespace DWIS.Service.WOBCorrections.Model
                 if (configuration.MaxRelTMad is not null) MaxRelTMad = configuration.MaxRelTMad.Value;
                 if (configuration.MaxDepthMad is not null) MaxDepthMad = configuration.MaxDepthMad.Value;
                 if (configuration.MinVelocityForMotion is not null) MinVelocityForMotion = configuration.MinVelocityForMotion.Value;
+                if (configuration.FactorThresholdInSlips is not null) FactorThresholdInSlips = configuration.FactorThresholdInSlips.Value;
+                if (configuration.DeltaTensionInSlips is not null) DeltaTensionInSlips = configuration.DeltaTensionInSlips.Value;
+                if (configuration.MinDistanceInSlips is not null) MinDistanceInSlips = configuration.MinDistanceInSlips.Value;
             }
 
             if (topSide == null) throw new ArgumentNullException(nameof(topSide));
@@ -585,6 +651,7 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 bool onBottom = (w.BitDepth >= w.BottomHoleDepth - DepthMargin);
                 bool offBottom = (w.BitDepth <= w.BottomHoleDepth - DepthMargin);
+                bool isMoving = w.signVelocity != 0.0;
 
                 bool omegaOk = w.Dh.Omega >= MinDownholeRotationalSpeed;
                 bool allowCalibrationUpdate = offBottom && omegaOk;
@@ -605,12 +672,39 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 // Pressures at same depth (downhole sample)
                 double dp = w.Dh.Pi - w.Dh.Pa;
+                double deltaH = h - hp; // (h - h_p)
+                double visc = rho * (l - lp) * Q * Q; // ρ(l-l_p)Q^2
 
                 // Determine what sensors we effectively have:
                 bool hasTd = !double.IsNaN(w.Td);
                 bool hasTp = !double.IsNaN(w.Tp);
                 bool hasTdl = !double.IsNaN(w.Tdl);
                 bool hasDownholeTension = w.Dh.TBha.HasValue;
+                if (_initialBd is null && hasTd) _initialBd = EstimateSlipsLevel(Surface, s => s.Td, MinDistanceInSlips, DeltaTensionInSlips);
+                if (_initialC0 is null && hasTp) _initialC0 = EstimateSlipsLevel(Surface, s => s.Tp, MinDistanceInSlips, DeltaTensionInSlips);
+                if (_initialD0 is null && hasTdl) _initialD0 = EstimateSlipsLevel(Surface, s => s.Tdl, MinDistanceInSlips, DeltaTensionInSlips);
+
+                double bdRef = GetReferenceLevel(hasTd ? w.Td : double.NaN, RlsBd.ResidualCount > 0 ? RlsBd.Beta[0] : double.NaN, _initialBd);
+                double c0Ref = GetReferenceLevel(hasTp ? w.Tp : double.NaN, RlsFp_Unconnected.ResidualCount > 0 ? RlsFp_Unconnected.Beta[0] : double.NaN, _initialC0);
+                double d0Ref = GetReferenceLevel(hasTdl ? w.Tdl : double.NaN, RlsFdl_Unconnected.ResidualCount > 0 ? RlsFdl_Unconnected.Beta[0] : double.NaN, _initialD0);
+
+                int slipsVotes = 0;
+                int slipsConsidered = 0;
+                VoteInSlips(hasTd, w.Td, bdRef, FactorThresholdInSlips, ref slipsVotes, ref slipsConsidered);
+                VoteInSlips(hasTp, w.Tp, c0Ref, FactorThresholdInSlips, ref slipsVotes, ref slipsConsidered);
+                VoteInSlips(hasTdl, w.Tdl, d0Ref, FactorThresholdInSlips, ref slipsVotes, ref slipsConsidered);
+
+                bool isUnconnected = offBottom && isMoving && slipsConsidered > 0 && (2 * slipsVotes >= slipsConsidered);
+                bool isConnectedForCalibration = allowCalibrationUpdate && !isUnconnected;
+                bool isUnconnectedForCalibration = offBottom && isMoving && isUnconnected;
+                double bd = RlsBd.ResidualCount > 0 ? RlsBd.Beta[0] : (_initialBd ?? 0.0);
+
+                if (isUnconnectedForCalibration)
+                {
+                    if (hasTd) RlsBd.Update(new[] { 1.0 }, w.Td);
+                    if (hasTp) RlsFp_Unconnected.Update(new[] { 1.0, z, z * z }, w.Tp);
+                    if (hasTdl) RlsFdl_Unconnected.Update(new[] { 1.0, z, w.signVelocity }, w.Tdl);
+                }
 
                 // ========= 1) Calibrate α-model from downhole tension =========
                 // xAlpha = [cosθ, ρcosθ, ρhp, (pi-pa), ρQ^2]
@@ -623,9 +717,18 @@ namespace DWIS.Service.WOBCorrections.Model
                     rho * Q * Q
                 };
 
-                if (allowCalibrationUpdate && hasDownholeTension)
+                if (isConnectedForCalibration && hasDownholeTension)
                 {
                     RlsAlpha.Update(xAlpha, w.Dh.TBha!.Value);
+                }
+
+                // ========= 1.b) Calibrate shared gamma terms =========
+                // If Td and downhole tension are both present:
+                // Td - b_d - TBHA = γ1Δh + γ2ρΔh + γ3ρ(l-l_p)Q^2
+                double[] xGamma = new[] { deltaH, rho * deltaH, visc };
+                if (isConnectedForCalibration && hasTd && hasDownholeTension)
+                {
+                    RlsGamma.Update(xGamma, w.Td - bd - w.Dh.TBha!.Value);
                 }
 
                 // ========= 2) Calibrate artifacts =========
@@ -640,36 +743,49 @@ namespace DWIS.Service.WOBCorrections.Model
                     double[] xFp = { 1.0, z, z * z, Q, Q * Q, z * Q };
                     double[] xFdl = { 1.0, z, w.signVelocity };
 
-                    if (allowCalibrationUpdate)
+                    if (isConnectedForCalibration)
                     {
-                        if (hasTp) RlsFp_WithTd.Update(xFp, w.Tp - w.Td);
-                        if (hasTdl) RlsFdl_WithTd.Update(xFdl, w.Tdl - w.Td);
+                        if (hasTp) RlsFp_WithTd.Update(xFp, w.Tp - (w.Td - bd));
+                        if (hasTdl) RlsFdl_WithTd.Update(xFdl, w.Tdl - (w.Td - bd));
                     }
-
-                    fp = RlsFp_WithTd.Predict(xFp);
-                    fdl = RlsFdl_WithTd.Predict(xFdl);
+                    fp = isUnconnected && RlsFp_Unconnected.ResidualCount > 0
+                        ? RlsFp_Unconnected.Predict(new[] { 1.0, z, z * z })
+                        : RlsFp_WithTd.Predict(xFp);
+                    fdl = isUnconnected && RlsFdl_Unconnected.ResidualCount > 0
+                        ? RlsFdl_Unconnected.Predict(new[] { 1.0, z, w.signVelocity })
+                        : RlsFdl_WithTd.Predict(xFdl);
                 }
                 else if (hasDownholeTension)
                 {
-                    // Without instrumented sub, use README gamma formulation with T_BHA (measured)
-                    double deltaH = h - hp; // (h - h_p)
-                    double visc = rho * (l - lp) * Q * Q; // ρ(l-l_p)Q^2 (as in README)
+                    // Without instrumented sub, remove shared gamma contribution and calibrate f_p / f_dl.
+                    double[] xFp = { 1.0, z, z * z, Q, Q * Q, z * Q };
+                    double[] xFdl = { 1.0, z, w.signVelocity };
 
-                    double[] xFp = { 1.0, z, z * z, Q, Q * Q, z * Q, deltaH, rho * deltaH, visc };
-                    double[] xFdl = { 1.0, z, w.signVelocity, deltaH, rho * deltaH, visc };
+                    double fpPred = RlsFp_NoTd.Predict(xFp);
+                    double fdlPred = RlsFdl_NoTd.Predict(xFdl);
 
-                    if (allowCalibrationUpdate)
+                    // Jointly refine gamma using both sensors when available.
+                    if (isConnectedForCalibration)
                     {
-                        if (hasTp) RlsFp_NoTd.Update(xFp, w.Tp - w.Dh.TBha!.Value);
-                        if (hasTdl) RlsFdl_NoTd.Update(xFdl, w.Tdl - w.Dh.TBha!.Value);
+                        if (hasTp) RlsGamma.Update(xGamma, w.Tp - w.Dh.TBha!.Value - fpPred);
+                        if (hasTdl) RlsGamma.Update(xGamma, w.Tdl - w.Dh.TBha!.Value - fdlPred);
                     }
 
-                    // For correction we need only f_p and f_dl parts (first 6 / first 3 coeffs)
-                    var bFp = RlsFp_NoTd.Beta;
-                    fp = bFp[0] + bFp[1] * z + bFp[2] * z * z + bFp[3] * Q + bFp[4] * Q * Q + bFp[5] * z * Q;
+                    var g = RlsGamma.Beta;
+                    double gammaTerm = g[0] * deltaH + g[1] * rho * deltaH + g[2] * visc;
 
-                    var bFdl = RlsFdl_NoTd.Beta;
-                    fdl = bFdl[0] + bFdl[1] * z + bFdl[2] * w.signVelocity;
+                    if (isConnectedForCalibration)
+                    {
+                        if (hasTp) RlsFp_NoTd.Update(xFp, w.Tp - w.Dh.TBha!.Value - gammaTerm);
+                        if (hasTdl) RlsFdl_NoTd.Update(xFdl, w.Tdl - w.Dh.TBha!.Value - gammaTerm);
+                    }
+
+                    fp = isUnconnected && RlsFp_Unconnected.ResidualCount > 0
+                        ? RlsFp_Unconnected.Predict(new[] { 1.0, z, z * z })
+                        : RlsFp_NoTd.Predict(xFp);
+                    fdl = isUnconnected && RlsFdl_Unconnected.ResidualCount > 0
+                        ? RlsFdl_Unconnected.Predict(new[] { 1.0, z, w.signVelocity })
+                        : RlsFdl_NoTd.Predict(xFdl);
                 }
                 else
                 {
@@ -680,9 +796,9 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 // ========= 3) Choose corrected surface tension T_corr =========
                 // README: T_corr = T_measured - f_sensor(z,Q,zdot)
-                // For Td: no modeled artifact (bias ignored)
+                // For Td: subtract b_d bias
                 // For Tp/Tdl: subtract f_p/f_dl
-                double Td_corr = hasTd ? w.Td : double.NaN;
+                double Td_corr = hasTd ? w.Td - bd : double.NaN;
                 double Tp_corr = hasTp ? w.Tp - fp : double.NaN;
                 double Tdl_corr = hasTdl ? w.Tdl - fdl : double.NaN;
 
@@ -706,10 +822,22 @@ namespace DWIS.Service.WOBCorrections.Model
                     rho * l * Q * Q
                 };
 
-                if (allowCalibrationUpdate && !double.IsNaN(TcorrForBeta))
+                if (isConnectedForCalibration && !double.IsNaN(TcorrForBeta))
                 {
                     RlsBeta.Update(xBeta, TcorrForBeta);
-                    logger?.LogInformation("CalibratorCorrector: calibration updated (alpha/beta/artifacts as applicable).");
+                    logger?.LogInformation(
+                        $"CalibratorCorrector: calibration updated. " +
+                        $"state={(isUnconnected ? "unconnected" : "connected")} " +
+                        $"sigma(alpha)={RlsAlpha.ResidualStdDev:G6} n={RlsAlpha.ResidualCount} " +
+                        $"sigma(beta)={RlsBeta.ResidualStdDev:G6} n={RlsBeta.ResidualCount} " +
+                        $"sigma(bd)={RlsBd.ResidualStdDev:G6} n={RlsBd.ResidualCount} " +
+                        $"sigma(gamma)={RlsGamma.ResidualStdDev:G6} n={RlsGamma.ResidualCount} " +
+                        $"sigma(fp|slips)={RlsFp_Unconnected.ResidualStdDev:G6} n={RlsFp_Unconnected.ResidualCount} " +
+                        $"sigma(fdl|slips)={RlsFdl_Unconnected.ResidualStdDev:G6} n={RlsFdl_Unconnected.ResidualCount} " +
+                        $"sigma(fp|Td)={RlsFp_WithTd.ResidualStdDev:G6} n={RlsFp_WithTd.ResidualCount} " +
+                        $"sigma(fdl|Td)={RlsFdl_WithTd.ResidualStdDev:G6} n={RlsFdl_WithTd.ResidualCount} " +
+                        $"sigma(fp|noTd)={RlsFp_NoTd.ResidualStdDev:G6} n={RlsFp_NoTd.ResidualCount} " +
+                        $"sigma(fdl|noTd)={RlsFdl_NoTd.ResidualStdDev:G6} n={RlsFdl_NoTd.ResidualCount}");
                 }
 
                 // ========= 5) Compute corrected WOB outputs =========
@@ -741,7 +869,36 @@ namespace DWIS.Service.WOBCorrections.Model
                     hasTdl ? Tdl_corr :
                     double.NaN;
 
-                double correctedSurfaceWob = TcorrForOutput - betaPred;
+                // F_SWOB1 from beta-model
+                double fSwob1 = TcorrForOutput - betaPred;
+                double sigmaSensor =
+                    hasTd ? RlsBd.ResidualStdDev :
+                    hasTp ? (isUnconnected ? RlsFp_Unconnected.ResidualStdDev : RlsFp_NoTd.ResidualStdDev) :
+                    hasTdl ? (isUnconnected ? RlsFdl_Unconnected.ResidualStdDev : RlsFdl_NoTd.ResidualStdDev) :
+                    double.NaN;
+                double sigma1 = CombineSigmas(sigmaSensor, RlsBeta.ResidualStdDev);
+
+                // F_SWOB2 from gamma-model + downhole tension (if available/calibrated)
+                double fSwob2 = double.NaN;
+                double sigma2 = double.NaN;
+                if (hasDownholeTension && !double.IsNaN(TcorrForOutput))
+                {
+                    double g1, g2, g3, sigmaGamma;
+                    bool hasGamma = TryGetGammaModel(out g1, out g2, out g3, out sigmaGamma);
+                    if (hasGamma)
+                    {
+                        fSwob2 =
+                            TcorrForOutput
+                            - g1 * deltaH
+                            + g2 * rho * deltaH
+                            + g3 * visc
+                            + w.Dh.TBha!.Value;
+                        sigma2 = CombineSigmas(sigmaSensor, sigmaGamma);
+                    }
+                }
+
+                // Gaussian sensor fusion of SWOB estimates using inverse-variance weights
+                double correctedSurfaceWob = FuseGaussian(fSwob1, sigma1, fSwob2, sigma2, out var fusedSigma);
 
                 if (correctedMeasurements.CorrectedSurfaceWeightOnBit is not null && !double.IsNaN(correctedSurfaceWob))
                 {
@@ -793,8 +950,11 @@ namespace DWIS.Service.WOBCorrections.Model
                 if (_logCounter % 20 == 0)
                 {
                     logger?.LogInformation(
-                        $"CalibratorCorrector: onBottom={onBottom} offBottom={offBottom} omegaOk={omegaOk} " +
-                        $"SWOB={correctedSurfaceWob:G6} DWOB={(double.IsNaN(correctedDownholeWob) ? double.NaN : correctedDownholeWob):G6}");
+                        $"CalibratorCorrector: onBottom={onBottom} offBottom={offBottom} state={(isUnconnected ? "unconnected" : "connected")} omegaOk={omegaOk} " +
+                        $"SWOB1={fSwob1:G6} sigma1={sigma1:G6} " +
+                        $"SWOB2={fSwob2:G6} sigma2={sigma2:G6} " +
+                        $"SWOB={correctedSurfaceWob:G6} sigmaSWOB={fusedSigma:G6} " +
+                        $"DWOB={(double.IsNaN(correctedDownholeWob) ? double.NaN : correctedDownholeWob):G6}");
                 }
             }
         }
@@ -968,6 +1128,106 @@ namespace DWIS.Service.WOBCorrections.Model
             if (prop?.Value is null) return false;
             value = prop.Value.Value;
             return true;
+        }
+
+        static bool TryGetGammaModel(out double g1, out double g2, out double g3, out double sigmaGamma)
+        {
+            g1 = g2 = g3 = sigmaGamma = double.NaN;
+            if (RlsGamma.ResidualCount <= 0 || !IsFinitePositive(RlsGamma.ResidualStdDev)) return false;
+
+            var b = RlsGamma.Beta;
+            g1 = b[0];
+            g2 = b[1];
+            g3 = b[2];
+            sigmaGamma = RlsGamma.ResidualStdDev;
+            return true;
+        }
+
+        static double GetReferenceLevel(double measured, double modelConstant, double? initialEstimate)
+        {
+            if (!double.IsNaN(modelConstant) && modelConstant > 0.0) return modelConstant;
+            if (initialEstimate.HasValue && initialEstimate.Value > 0.0) return initialEstimate.Value;
+            if (!double.IsNaN(measured) && measured > 0.0) return measured;
+            return double.NaN;
+        }
+
+        static void VoteInSlips(bool hasSignal, double value, double referenceLevel, double factor, ref int slipsVotes, ref int considered)
+        {
+            if (!hasSignal || double.IsNaN(value) || double.IsNaN(referenceLevel) || referenceLevel <= 0.0) return;
+            considered++;
+            if (value <= factor * referenceLevel) slipsVotes++;
+        }
+
+        static double? EstimateSlipsLevel(IEnumerable<SurfaceSample> surface, Func<SurfaceSample, double> selector, double minDistance, double deltaTension)
+        {
+            var seq = surface.ToList();
+            if (seq.Count < 2) return null;
+
+            double? best = null;
+            for (int i = 0; i < seq.Count - 1; i++)
+            {
+                double ti = selector(seq[i]);
+                if (double.IsNaN(ti)) continue;
+                for (int j = i + 1; j < seq.Count; j++)
+                {
+                    double tj = selector(seq[j]);
+                    if (double.IsNaN(tj)) continue;
+                    if (Math.Abs(seq[j].BlockPositionZ - seq[i].BlockPositionZ) < minDistance) continue;
+                    if (Math.Abs(tj - ti) < deltaTension) continue;
+                    double low = Math.Min(ti, tj);
+                    best = best.HasValue ? Math.Min(best.Value, low) : low;
+                }
+            }
+
+            if (best.HasValue) return best.Value;
+
+            // Fallback for early startup if no jump yet observed.
+            var vals = seq.Select(selector).Where(v => !double.IsNaN(v)).ToArray();
+            if (vals.Length == 0) return null;
+            return vals.Min();
+        }
+
+        static bool IsFinitePositive(double x) => !double.IsNaN(x) && !double.IsInfinity(x) && x > 0.0;
+
+        static double CombineSigmas(double sigmaA, double sigmaB)
+        {
+            bool a = IsFinitePositive(sigmaA);
+            bool b = IsFinitePositive(sigmaB);
+            if (a && b) return Math.Sqrt(sigmaA * sigmaA + sigmaB * sigmaB);
+            if (a) return sigmaA;
+            if (b) return sigmaB;
+            return double.NaN;
+        }
+
+        static double FuseGaussian(double x1, double sigma1, double x2, double sigma2, out double fusedSigma)
+        {
+            bool h1 = !double.IsNaN(x1);
+            bool h2 = !double.IsNaN(x2);
+            bool s1 = IsFinitePositive(sigma1);
+            bool s2 = IsFinitePositive(sigma2);
+
+            if (h1 && s1 && h2 && s2)
+            {
+                double w1 = 1.0 / (sigma1 * sigma1);
+                double w2 = 1.0 / (sigma2 * sigma2);
+                fusedSigma = Math.Sqrt(1.0 / (w1 + w2));
+                return (w1 * x1 + w2 * x2) / (w1 + w2);
+            }
+
+            if (h1)
+            {
+                fusedSigma = s1 ? sigma1 : double.NaN;
+                return x1;
+            }
+
+            if (h2)
+            {
+                fusedSigma = s2 ? sigma2 : double.NaN;
+                return x2;
+            }
+
+            fusedSigma = double.NaN;
+            return double.NaN;
         }
 
         // ====== Robust stats ======

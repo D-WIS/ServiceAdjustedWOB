@@ -471,9 +471,6 @@ $$
 $$
 
 4. Compute motion direction:
-$$
-   \dot z = \frac{z_n - z_{n-1}}{t_n - t_{n-1}}
-$$
 
 5. Reject unstable windows using MAD filters
 
