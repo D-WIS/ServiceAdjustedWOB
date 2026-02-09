@@ -283,6 +283,8 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 // Determine what sensors we effectively have:
                 bool hasTd = !double.IsNaN(w.Td);
+                bool hasTp = !double.IsNaN(w.Tp);
+                bool hasTdl = !double.IsNaN(w.Tdl);
                 bool hasDownholeTension = w.Dh.TBha.HasValue;
 
                 // ========= 1) Calibrate α-model from downhole tension =========
@@ -315,8 +317,8 @@ namespace DWIS.Service.WOBCorrections.Model
 
                     if (allowCalibrationUpdate)
                     {
-                        RlsFp_WithTd.Update(xFp, w.Tp - w.Td);
-                        RlsFdl_WithTd.Update(xFdl, w.Tdl - w.Td);
+                        if (hasTp) RlsFp_WithTd.Update(xFp, w.Tp - w.Td);
+                        if (hasTdl) RlsFdl_WithTd.Update(xFdl, w.Tdl - w.Td);
                     }
 
                     fp = RlsFp_WithTd.Predict(xFp);
@@ -333,8 +335,8 @@ namespace DWIS.Service.WOBCorrections.Model
 
                     if (allowCalibrationUpdate)
                     {
-                        RlsFp_NoTd.Update(xFp, w.Tp - w.Dh.TBha!.Value);
-                        RlsFdl_NoTd.Update(xFdl, w.Tdl - w.Dh.TBha!.Value);
+                        if (hasTp) RlsFp_NoTd.Update(xFp, w.Tp - w.Dh.TBha!.Value);
+                        if (hasTdl) RlsFdl_NoTd.Update(xFdl, w.Tdl - w.Dh.TBha!.Value);
                     }
 
                     // For correction we need only f_p and f_dl parts (first 6 / first 3 coeffs)
@@ -355,13 +357,18 @@ namespace DWIS.Service.WOBCorrections.Model
                 // README: T_corr = T_measured - f_sensor(z,Q,zdot)
                 // For Td: no modeled artifact (bias ignored)
                 // For Tp/Tdl: subtract f_p/f_dl
-                double Td_corr = w.Td;
-                double Tp_corr = w.Tp - fp;
-                double Tdl_corr = w.Tdl - fdl;
+                double Td_corr = hasTd ? w.Td : double.NaN;
+                double Tp_corr = hasTp ? w.Tp - fp : double.NaN;
+                double Tdl_corr = hasTdl ? w.Tdl - fdl : double.NaN;
 
                 // Choose a "best" corrected tension for SWOB calibration/correction:
                 // Prefer Td if present, else average of Tp/Tdl corrected.
-                double TcorrForBeta = hasTd ? Td_corr : 0.5 * (Tp_corr + Tdl_corr);
+                double TcorrForBeta =
+                    hasTd ? Td_corr :
+                    (hasTp && hasTdl) ? 0.5 * (Tp_corr + Tdl_corr) :
+                    hasTp ? Tp_corr :
+                    hasTdl ? Tdl_corr :
+                    double.NaN;
 
                 // ========= 4) Calibrate β-model from off-bottom corrected surface tension =========
                 // xBeta = [h, ρh, (pi-pa), ρQ^2, ρ l Q^2]
@@ -374,7 +381,7 @@ namespace DWIS.Service.WOBCorrections.Model
                     rho * l * Q * Q
                 };
 
-                if (allowCalibrationUpdate)
+                if (allowCalibrationUpdate && !double.IsNaN(TcorrForBeta))
                 {
                     RlsBeta.Update(xBeta, TcorrForBeta);
                     logger?.LogInformation("CalibratorCorrector: calibration updated (alpha/beta/artifacts as applicable).");
@@ -403,7 +410,11 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 // Choose which surface measurement you want to output as "CorrectedSurfaceWeightOnBit":
                 // If on-bottom, you may prefer Tp_corr or Td_corr depending on sensor installed; here: prefer Td if present.
-                double TcorrForOutput = hasTd ? Td_corr : Tp_corr;
+                double TcorrForOutput =
+                    hasTd ? Td_corr :
+                    hasTp ? Tp_corr :
+                    hasTdl ? Tdl_corr :
+                    double.NaN;
 
                 double correctedSurfaceWob = TcorrForOutput - betaPred;
 
@@ -475,11 +486,12 @@ namespace DWIS.Service.WOBCorrections.Model
             if (!TryGetValue(topSide.BottomOfStringVerticalDepth, out var tvdAtBit)) return false;
             if (!TryGetValue(topSide.DrillingFluidDensityIn, out var rho)) return false;
             if (!TryGetValue(topSide.FlowrateIn, out var q)) return false;
-            if (!TryGetValue(topSide.MeasuredTensionInstrumentedSub, out var td)) return false;
+            double td = TryGetValue(topSide.MeasuredTensionInstrumentedSub, out var tdVal) ? tdVal : double.NaN;
+            double tp = TryGetValue(topSide.HookLoadAtTopDrive, out var tpVal) ? tpVal : double.NaN;
+            double tdl = TryGetValue(topSide.HookLoadAtAnchor, out var tdlVal) ? tdlVal : double.NaN;
 
-            // Tp/Tdl fall back to Td if missing
-            double tp = TryGetValue(topSide.HookLoadAtTopDrive, out var tpVal) ? tpVal : td;
-            double tdl = TryGetValue(topSide.HookLoadAtAnchor, out var tdlVal) ? tdlVal : td;
+            // At least one topside tension sensor is needed for SWOB correction.
+            if (double.IsNaN(td) && double.IsNaN(tp) && double.IsNaN(tdl)) return false;
 
             // Here l is "string length" proxy; in your existing code you use BottomOfStringDepth.
             double l = bitDepth;
@@ -614,9 +626,9 @@ namespace DWIS.Service.WOBCorrections.Model
                 return (mad / den) > maxRelTMad;
             }
 
-            if (BadRel(w.TdMad, w.Td)) return false;
-            if (BadRel(w.TpMad, w.Tp)) return false;
-            if (BadRel(w.TdlMad, w.Tdl)) return false;
+            if (!double.IsNaN(w.Td) && !double.IsNaN(w.TdMad) && BadRel(w.TdMad, w.Td)) return false;
+            if (!double.IsNaN(w.Tp) && !double.IsNaN(w.TpMad) && BadRel(w.TpMad, w.Tp)) return false;
+            if (!double.IsNaN(w.Tdl) && !double.IsNaN(w.TdlMad) && BadRel(w.TdlMad, w.Tdl)) return false;
 
             if (w.BitDepthMad > maxDepthMad) return false;
             if (w.BottomHoleDepthMad > maxDepthMad) return false;
@@ -636,13 +648,15 @@ namespace DWIS.Service.WOBCorrections.Model
         // ====== Robust stats ======
         static double Median(IEnumerable<double> values)
         {
-            var a = values.OrderBy(v => v).ToArray();
+            var a = values.Where(v => !double.IsNaN(v)).OrderBy(v => v).ToArray();
             int n = a.Length;
             if (n == 0) return double.NaN;
             return (n % 2 == 1) ? a[n / 2] : 0.5 * (a[n / 2 - 1] + a[n / 2]);
         }
 
         static double Mad(IEnumerable<double> values, double median)
-            => Median(values.Select(v => Math.Abs(v - median)));
+            => double.IsNaN(median)
+                ? double.NaN
+                : Median(values.Where(v => !double.IsNaN(v)).Select(v => Math.Abs(v - median)));
     }
 }
