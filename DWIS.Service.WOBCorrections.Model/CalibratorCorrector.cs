@@ -67,28 +67,73 @@ namespace DWIS.Service.WOBCorrections.Model
         public double HuberK;
         public double SigmaEwma;
         public double SigmaAlpha;
+        readonly double _p0;
+        readonly int _adaptEvery;
+        readonly int _historyLength;
+        readonly int _minSamplesForAdapt;
+        readonly double _minFeatureStd;
+        readonly double _maxCorrCondition;
+        readonly List<int[]> _candidatePartitions;
+        readonly Queue<double[]> _xHistory = new();
+        int[] _groupOf;
+        int[] _groupSizes;
+        int _activeDim;
+        int _updateCount;
+        double[] _betaActive;
+        double[,] _pActive;
 
         public Rls(int dim, double lambda = 0.995, double p0 = 1e6, double huberK = 1.5, double sigmaAlpha = 0.02)
         {
             Dim = dim;
             Lambda = lambda;
-            Beta = new double[dim];
-            P = new double[dim, dim];
-            for (int i = 0; i < dim; i++) P[i, i] = p0;
             HuberK = huberK;
             SigmaAlpha = sigmaAlpha;
             SigmaEwma = 1.0;
+            _p0 = p0;
+
+            _adaptEvery = 10;
+            _historyLength = Math.Max(80, 15 * dim);
+            _minSamplesForAdapt = Math.Max(2 * dim, 12);
+            _minFeatureStd = 1e-9;
+            _maxCorrCondition = 1e5;
+
+            _groupOf = new int[dim];
+            _groupSizes = Enumerable.Repeat(1, dim).ToArray();
+            _activeDim = dim;
+            _betaActive = new double[_activeDim];
+            _pActive = new double[_activeDim, _activeDim];
+            for (int i = 0; i < _activeDim; i++) _pActive[i, i] = p0;
+
+            Beta = new double[dim];
+            P = new double[dim, dim];
+            SyncPublicState();
+
+            _candidatePartitions = GeneratePartitions(dim)
+                .OrderBy(p => PartitionMaxGroupSize(p, dim))
+                .ThenBy(p => dim - PartitionGroupCount(p))
+                .ThenBy(p => PartitionNonSingletonCount(p, dim))
+                .ThenBy(PartitionSignature)
+                .ToList();
         }
 
         public double Predict(double[] x)
         {
+            var xa = Compress(x);
             double s = 0;
-            for (int i = 0; i < Dim; i++) s += Beta[i] * x[i];
+            for (int i = 0; i < _activeDim; i++) s += _betaActive[i] * xa[i];
             return s;
         }
 
         public (double yhat, double residual, double w) Update(double[] x, double y)
         {
+            AddHistory(x);
+            _updateCount++;
+            if (_updateCount % _adaptEvery == 0)
+            {
+                AdaptGroupingIfNeeded();
+            }
+
+            var xa = Compress(x);
             double yhat = Predict(x);
             double e = y - yhat;
 
@@ -101,44 +146,324 @@ namespace DWIS.Service.WOBCorrections.Model
             double w = au <= HuberK ? 1.0 : (HuberK / au);
 
             double sw = Math.Sqrt(w);
-            var xw = new double[Dim];
-            for (int i = 0; i < Dim; i++) xw[i] = sw * x[i];
+            var xw = new double[_activeDim];
+            for (int i = 0; i < _activeDim; i++) xw[i] = sw * xa[i];
             double yw = sw * y;
 
-            double[] Px = new double[Dim];
-            for (int i = 0; i < Dim; i++)
+            double[] Px = new double[_activeDim];
+            for (int i = 0; i < _activeDim; i++)
             {
                 double sPx = 0;
-                for (int j = 0; j < Dim; j++) sPx += P[i, j] * xw[j];
+                for (int j = 0; j < _activeDim; j++) sPx += _pActive[i, j] * xw[j];
                 Px[i] = sPx;
             }
 
             double denom = Lambda;
-            for (int i = 0; i < Dim; i++) denom += xw[i] * Px[i];
+            for (int i = 0; i < _activeDim; i++) denom += xw[i] * Px[i];
             denom = Math.Max(1e-18, denom);
 
-            double[] K = new double[Dim];
-            for (int i = 0; i < Dim; i++) K[i] = Px[i] / denom;
+            double[] K = new double[_activeDim];
+            for (int i = 0; i < _activeDim; i++) K[i] = Px[i] / denom;
 
             double yhatw = 0;
-            for (int i = 0; i < Dim; i++) yhatw += Beta[i] * xw[i];
+            for (int i = 0; i < _activeDim; i++) yhatw += _betaActive[i] * xw[i];
             double ew = yw - yhatw;
 
-            for (int i = 0; i < Dim; i++) Beta[i] += K[i] * ew;
+            for (int i = 0; i < _activeDim; i++) _betaActive[i] += K[i] * ew;
 
-            double[,] newP = new double[Dim, Dim];
-            for (int i = 0; i < Dim; i++)
+            double[,] newP = new double[_activeDim, _activeDim];
+            for (int i = 0; i < _activeDim; i++)
             {
-                for (int j = 0; j < Dim; j++)
+                for (int j = 0; j < _activeDim; j++)
                 {
                     double kij = 0;
-                    for (int k = 0; k < Dim; k++) kij += K[i] * xw[k] * P[k, j];
-                    newP[i, j] = (P[i, j] - kij) / Lambda;
+                    for (int k = 0; k < _activeDim; k++) kij += K[i] * xw[k] * _pActive[k, j];
+                    newP[i, j] = (_pActive[i, j] - kij) / Lambda;
                 }
             }
-            P = newP;
+            _pActive = newP;
+            SyncPublicState();
 
             return (yhat, e, w);
+        }
+
+        void AddHistory(double[] x)
+        {
+            _xHistory.Enqueue((double[])x.Clone());
+            while (_xHistory.Count > _historyLength)
+            {
+                _xHistory.Dequeue();
+            }
+        }
+
+        double[] Compress(double[] x)
+        {
+            var xa = new double[_activeDim];
+            for (int i = 0; i < Dim; i++)
+            {
+                xa[_groupOf[i]] += x[i];
+            }
+            return xa;
+        }
+
+        void AdaptGroupingIfNeeded()
+        {
+            if (_xHistory.Count < _minSamplesForAdapt) return;
+
+            int[]? best = null;
+            foreach (var partition in _candidatePartitions)
+            {
+                if (IsSeparable(partition))
+                {
+                    best = partition;
+                    break;
+                }
+            }
+
+            if (best is null) return;
+            if (SamePartition(_groupOf, best)) return;
+            Reconfigure(best);
+        }
+
+        bool IsSeparable(int[] partition)
+        {
+            var rows = _xHistory.ToArray();
+            int m = rows.Length;
+            int p = PartitionGroupCount(partition);
+            if (m < p + 2) return false;
+
+            var means = new double[p];
+            var variances = new double[p];
+
+            foreach (var r in rows)
+            {
+                for (int j = 0; j < Dim; j++) means[partition[j]] += r[j];
+            }
+            for (int g = 0; g < p; g++) means[g] /= m;
+
+            foreach (var r in rows)
+            {
+                var agg = new double[p];
+                for (int j = 0; j < Dim; j++) agg[partition[j]] += r[j];
+                for (int g = 0; g < p; g++)
+                {
+                    double d = agg[g] - means[g];
+                    variances[g] += d * d;
+                }
+            }
+
+            var std = new double[p];
+            for (int g = 0; g < p; g++)
+            {
+                variances[g] = variances[g] / Math.Max(1, m - 1);
+                std[g] = Math.Sqrt(Math.Max(0.0, variances[g]));
+                if (!double.IsFinite(std[g]) || std[g] < _minFeatureStd) return false;
+            }
+
+            var corr = new double[p, p];
+            foreach (var r in rows)
+            {
+                var agg = new double[p];
+                for (int j = 0; j < Dim; j++) agg[partition[j]] += r[j];
+                for (int g1 = 0; g1 < p; g1++)
+                {
+                    double n1 = (agg[g1] - means[g1]) / std[g1];
+                    for (int g2 = g1; g2 < p; g2++)
+                    {
+                        double n2 = (agg[g2] - means[g2]) / std[g2];
+                        corr[g1, g2] += n1 * n2;
+                    }
+                }
+            }
+
+            for (int g1 = 0; g1 < p; g1++)
+            {
+                for (int g2 = g1; g2 < p; g2++)
+                {
+                    corr[g1, g2] /= Math.Max(1, m - 1);
+                    corr[g2, g1] = corr[g1, g2];
+                }
+            }
+
+            var eig = EigenvaluesSymmetric(corr);
+            if (eig.Length == 0) return false;
+
+            double maxEig = eig.Max();
+            double minEig = eig.Min();
+            if (!double.IsFinite(maxEig) || !double.IsFinite(minEig)) return false;
+            if (minEig <= 1e-9) return false;
+
+            double cond = maxEig / minEig;
+            return cond <= _maxCorrCondition;
+        }
+
+        void Reconfigure(int[] newGroupOf)
+        {
+            var fullBeta = (double[])Beta.Clone();
+            _groupOf = (int[])newGroupOf.Clone();
+            _activeDim = PartitionGroupCount(_groupOf);
+            _groupSizes = PartitionGroupSizes(_groupOf, Dim);
+
+            _betaActive = new double[_activeDim];
+            for (int j = 0; j < Dim; j++)
+            {
+                _betaActive[_groupOf[j]] += fullBeta[j];
+            }
+            for (int g = 0; g < _activeDim; g++)
+            {
+                _betaActive[g] /= Math.Max(1, _groupSizes[g]);
+            }
+
+            _pActive = new double[_activeDim, _activeDim];
+            for (int i = 0; i < _activeDim; i++) _pActive[i, i] = _p0;
+
+            SyncPublicState();
+        }
+
+        void SyncPublicState()
+        {
+            Array.Clear(Beta, 0, Beta.Length);
+            for (int j = 0; j < Dim; j++)
+            {
+                Beta[j] = _betaActive[_groupOf[j]];
+            }
+
+            P = new double[Dim, Dim];
+            for (int i = 0; i < Dim; i++)
+            {
+                int gi = _groupOf[i];
+                for (int j = 0; j < Dim; j++)
+                {
+                    int gj = _groupOf[j];
+                    P[i, j] = _pActive[gi, gj];
+                }
+            }
+        }
+
+        static bool SamePartition(int[] a, int[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        static int PartitionGroupCount(int[] partition) => partition.Max() + 1;
+
+        static int[] PartitionGroupSizes(int[] partition, int dim)
+        {
+            int groups = PartitionGroupCount(partition);
+            var sizes = new int[groups];
+            for (int i = 0; i < dim; i++) sizes[partition[i]]++;
+            return sizes;
+        }
+
+        static int PartitionMaxGroupSize(int[] partition, int dim)
+        {
+            var sizes = PartitionGroupSizes(partition, dim);
+            return sizes.Max();
+        }
+
+        static int PartitionNonSingletonCount(int[] partition, int dim)
+        {
+            var sizes = PartitionGroupSizes(partition, dim);
+            int count = 0;
+            for (int i = 0; i < sizes.Length; i++) if (sizes[i] > 1) count++;
+            return count;
+        }
+
+        static string PartitionSignature(int[] partition) => string.Join(",", partition);
+
+        static List<int[]> GeneratePartitions(int dim)
+        {
+            var result = new List<int[]>();
+            if (dim <= 0) return result;
+
+            var part = new int[dim];
+            part[0] = 0;
+            var sizes = new List<int> { 1 };
+
+            void Recurse(int idx, int groups)
+            {
+                if (idx == dim)
+                {
+                    result.Add((int[])part.Clone());
+                    return;
+                }
+
+                for (int g = 0; g < groups; g++)
+                {
+                    part[idx] = g;
+                    sizes[g]++;
+                    Recurse(idx + 1, groups);
+                    sizes[g]--;
+                }
+
+                part[idx] = groups;
+                sizes.Add(1);
+                Recurse(idx + 1, groups + 1);
+                sizes.RemoveAt(sizes.Count - 1);
+            }
+
+            Recurse(1, 1);
+            return result;
+        }
+
+        static double[] EigenvaluesSymmetric(double[,] matrix)
+        {
+            int n = matrix.GetLength(0);
+            if (n == 0) return Array.Empty<double>();
+
+            var a = (double[,])matrix.Clone();
+            int maxIter = 20 * n * n;
+            for (int iter = 0; iter < maxIter; iter++)
+            {
+                int p = 0, q = 1;
+                double maxOff = 0.0;
+                for (int i = 0; i < n; i++)
+                {
+                    for (int j = i + 1; j < n; j++)
+                    {
+                        double v = Math.Abs(a[i, j]);
+                        if (v > maxOff)
+                        {
+                            maxOff = v;
+                            p = i;
+                            q = j;
+                        }
+                    }
+                }
+
+                if (maxOff < 1e-10) break;
+
+                double app = a[p, p];
+                double aqq = a[q, q];
+                double apq = a[p, q];
+                double phi = 0.5 * Math.Atan2(2.0 * apq, aqq - app);
+                double c = Math.Cos(phi);
+                double s = Math.Sin(phi);
+
+                for (int k = 0; k < n; k++)
+                {
+                    if (k == p || k == q) continue;
+                    double aik = a[p, k];
+                    double aqk = a[q, k];
+                    a[p, k] = c * aik - s * aqk;
+                    a[k, p] = a[p, k];
+                    a[q, k] = s * aik + c * aqk;
+                    a[k, q] = a[q, k];
+                }
+
+                double appNew = c * c * app - 2.0 * s * c * apq + s * s * aqq;
+                double aqqNew = s * s * app + 2.0 * s * c * apq + c * c * aqq;
+                a[p, p] = appNew;
+                a[q, q] = aqqNew;
+                a[p, q] = 0.0;
+                a[q, p] = 0.0;
+            }
+
+            var evals = new double[n];
+            for (int i = 0; i < n; i++) evals[i] = a[i, i];
+            return evals;
         }
     }
 
