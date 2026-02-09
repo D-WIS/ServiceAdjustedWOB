@@ -1,0 +1,61 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36414.22
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.Server", "DWIS.Service.WOBCorrections.Server\DWIS.Service.WOBCorrections.Server.csproj", "{157DA9B3-E113-4DB2-8797-6026EA529E7A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.TestSources", "DWIS.Service.WOBCorrections.TestSources\DWIS.Service.WOBCorrections.TestSources.csproj", "{A912AE55-4817-4FE0-BD59-2ACFB577BEDB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.TestAdvisor", "DWIS.Service.WOBCorrections.TestAdvisor\DWIS.Service.WOBCorrections.TestAdvisor.csproj", "{E6B3FA9C-9299-4799-A06A-DC608200FE09}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.TestADCS", "DWIS.Service.WOBCorrections.TestADCS\DWIS.Service.WOBCorrections.TestADCS.csproj", "{F40C927B-33AE-4E36-85C4-DB89E9E581EF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.TestComposer", "DWIS.Service.WOBCorrections.TestComposer\DWIS.Service.WOBCorrections.TestComposer.csproj", "{5A0CFF37-81ED-4E02-A98F-EA1C1F3409E6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.Model", "DWIS.Service.WOBCorrections.Model\DWIS.Service.WOBCorrections.Model.csproj", "{A4B0BE11-6AC7-4569-8AFC-0C1C1B54A26B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
+	ProjectSection(SolutionItems) = preProject
+		.github\workflows\docker-build-push-interpreter.yml = .github\workflows\docker-build-push-interpreter.yml
+		README.md = README.md
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{157DA9B3-E113-4DB2-8797-6026EA529E7A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{157DA9B3-E113-4DB2-8797-6026EA529E7A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{157DA9B3-E113-4DB2-8797-6026EA529E7A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{157DA9B3-E113-4DB2-8797-6026EA529E7A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A912AE55-4817-4FE0-BD59-2ACFB577BEDB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A912AE55-4817-4FE0-BD59-2ACFB577BEDB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A912AE55-4817-4FE0-BD59-2ACFB577BEDB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A912AE55-4817-4FE0-BD59-2ACFB577BEDB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E6B3FA9C-9299-4799-A06A-DC608200FE09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E6B3FA9C-9299-4799-A06A-DC608200FE09}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E6B3FA9C-9299-4799-A06A-DC608200FE09}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E6B3FA9C-9299-4799-A06A-DC608200FE09}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F40C927B-33AE-4E36-85C4-DB89E9E581EF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F40C927B-33AE-4E36-85C4-DB89E9E581EF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F40C927B-33AE-4E36-85C4-DB89E9E581EF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F40C927B-33AE-4E36-85C4-DB89E9E581EF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5A0CFF37-81ED-4E02-A98F-EA1C1F3409E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5A0CFF37-81ED-4E02-A98F-EA1C1F3409E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5A0CFF37-81ED-4E02-A98F-EA1C1F3409E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5A0CFF37-81ED-4E02-A98F-EA1C1F3409E6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4B0BE11-6AC7-4569-8AFC-0C1C1B54A26B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4B0BE11-6AC7-4569-8AFC-0C1C1B54A26B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4B0BE11-6AC7-4569-8AFC-0C1C1B54A26B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4B0BE11-6AC7-4569-8AFC-0C1C1B54A26B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {AE85A9C2-3309-426E-810A-7025DA05478E}
+	EndGlobalSection
+EndGlobal
