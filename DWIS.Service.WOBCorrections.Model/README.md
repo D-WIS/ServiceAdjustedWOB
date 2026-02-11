@@ -369,10 +369,10 @@ $$
 
 Otherwise, if there are downhole tension measurements, the following equations are used:
 $$
-T_p - T_{BHA} - \gamma_1 (h-h_{p}) - \gamma_2 \rho (h-h_{p}) - \gamma_3 \rho (l - l_{p}) Q^2 = f_p(z,Q)
+T_p - T_{BHA} - \gamma_1 h_{p} - \gamma_2 \rho h_{p} - \gamma_3 \rho (l - l_{p}) Q^2 = f_p(z,Q)
 $$
 $$
-T_{dl} - T_{BHA} - \gamma_1 (h-h_{p}) - \gamma_2 \rho (h-h_{p})  - \gamma_3 \rho (l - l_{p}) Q^2= f_{dl}(z,\dot z)
+T_{dl} - T_{BHA} - \gamma_1 h_{p} - \gamma_2 \rho h_{p}  - \gamma_3 \rho (l - l_{p}) Q^2= f_{dl}(z,\dot z)
 $$
 
 where
@@ -387,7 +387,7 @@ This allows also to determine the parameters of the flowrate depend contribution
 Note that if there are both measurements from the load pins and from the deadline, both models are calibrated simultaneously because they share the same terms in $\gamma_1$, $\gamma_2$ and $\gamma_3$. If there is in addition a tension measured at an instrumented sub together with downhole tension measurements, then the terms $\gamma_1$, $\gamma_2$ and $\gamma_3$ are first calibrated using:
 
 $$
-T_d - b_d - T_{BHA} = \gamma_1 (h-h_{p}) + \gamma_2 \rho (h-h_{p}) + \gamma_3 \rho (l - l_{p}) Q^2
+T_d - b_d - T_{BHA} = \gamma_1 h_{p} + \gamma_2 \rho h_{p} + \gamma_3 \rho (l - l_{p}) Q^2
 $$
 
 As described above, the calibration of the parameters $c_0$, $c_1$, $c_2$, $c_4$, $c_5$, $d_0$, $d_1$, $d_2$, $\gamma_1$, $\gamma_2$ and $\gamma_3$ are preconditioned to an analysis of their sensitivity to the variability of $z$, $\mathrm{sign}(\dot z)$, $Q$, $h$ and $l$ (depending on which of those are relevant for the concerned model).
@@ -436,7 +436,7 @@ $$
 Alternatively, if there is a downhole tension that is measured and transmitted by high speed telementry, i.e., updated within less than 2 or 3s, and the model parameters $\gamma_1$, $\gamma_2$ and $\gamma_3$ are calibrated, the surface downhole WOB can be corrected using:
 
 $$
-F_{SWOB2} = T_{corr} - \gamma_1 (h-h_{p}) + \gamma_2 \rho (h-h_{p}) + \gamma_3 \rho (l - l_{p}) Q^2 + T_{BHA}
+F_{SWOB2} = T_{corr} - \gamma_1 h_{p} - \gamma_2 \rho h_{p} - \gamma_3 \rho (l - l_{p}) Q^2 - \alpha_0 \cos \theta - \alpha_1 \rho \cos \theta - \alpha_2 \rho h_{p} - \alpha_3 (p_i - p_a) - \alpha_4 \rho Q^2
 $$
 
 When both $F_{SWOB1}$ and $F_{SWOB2}$ are evaluated, the final surface WOB is calculated using sensor fusion. The sensor fusion simply uses the the two estimated values and their uncertainties to assess the most likely value value that would fit with the probability distributions from the two estimations. It also estimates its associated uncertainty.

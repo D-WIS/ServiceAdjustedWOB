@@ -54,510 +54,213 @@ namespace DWIS.Service.WOBCorrections.Model
         public double velocity;      // dz/dt
         public double signVelocity;  // sign(dz/dt)
     }
-
-    /// <summary>
-    /// Robust RLS: y ~= beta^T x, with forgetting factor + Huber weights.
-    /// </summary>
-    public class Rls
-    {
-        public readonly int Dim;
-        public readonly double Lambda;
-        public double[] Beta;
-        public double[,] P;
-        public double HuberK;
-        public double SigmaEwma;
-        public double SigmaAlpha;
-        readonly double _p0;
-        readonly int _adaptEvery;
-        readonly int _historyLength;
-        readonly int _minSamplesForAdapt;
-        readonly double _minFeatureStd;
-        readonly double _maxCorrCondition;
-        readonly List<int[]> _candidatePartitions;
-        readonly Queue<double[]> _xHistory = new();
-        readonly Queue<double> _yHistory = new();
-        int[] _groupOf;
-        int[] _groupSizes;
-        int _activeDim;
-        int _updateCount;
-        double[] _betaActive;
-        double[,] _pActive;
-        public double ResidualMean { get; private set; } = 0.0;
-        public double ResidualStdDev { get; private set; } = double.NaN;
-        public int ResidualCount { get; private set; } = 0;
-
-        public Rls(int dim, double lambda = 0.995, double p0 = 1e6, double huberK = 1.5, double sigmaAlpha = 0.02)
-        {
-            Dim = dim;
-            Lambda = lambda;
-            HuberK = huberK;
-            SigmaAlpha = sigmaAlpha;
-            SigmaEwma = 1.0;
-            _p0 = p0;
-
-            _adaptEvery = 10;
-            _historyLength = Math.Max(80, 15 * dim);
-            _minSamplesForAdapt = Math.Max(2 * dim, 12);
-            _minFeatureStd = 1e-9;
-            _maxCorrCondition = 1e5;
-
-            _groupOf = new int[dim];
-            _groupSizes = Enumerable.Repeat(1, dim).ToArray();
-            _activeDim = dim;
-            _betaActive = new double[_activeDim];
-            _pActive = new double[_activeDim, _activeDim];
-            for (int i = 0; i < _activeDim; i++) _pActive[i, i] = p0;
-
-            Beta = new double[dim];
-            P = new double[dim, dim];
-            SyncPublicState();
-
-            _candidatePartitions = GeneratePartitions(dim)
-                .OrderBy(p => PartitionMaxGroupSize(p, dim))
-                .ThenBy(p => dim - PartitionGroupCount(p))
-                .ThenBy(p => PartitionNonSingletonCount(p, dim))
-                .ThenBy(PartitionSignature)
-                .ToList();
-        }
-
-        public double Predict(double[] x)
-        {
-            var xa = Compress(x);
-            double s = 0;
-            for (int i = 0; i < _activeDim; i++) s += _betaActive[i] * xa[i];
-            return s;
-        }
-
-        public (double yhat, double residual, double w) Update(double[] x, double y)
-        {
-            AddHistory(x, y);
-            _updateCount++;
-            if (_updateCount % _adaptEvery == 0)
-            {
-                AdaptGroupingIfNeeded();
-            }
-
-            var xa = Compress(x);
-            double yhat = Predict(x);
-            double e = y - yhat;
-
-            double sigmaLike = 1.2533 * Math.Max(1e-9, Math.Abs(e));
-            SigmaEwma = (1.0 - SigmaAlpha) * SigmaEwma + SigmaAlpha * sigmaLike;
-            double sigma = Math.Max(1e-9, SigmaEwma);
-
-            double u = e / sigma;
-            double au = Math.Abs(u);
-            double w = au <= HuberK ? 1.0 : (HuberK / au);
-
-            double sw = Math.Sqrt(w);
-            var xw = new double[_activeDim];
-            for (int i = 0; i < _activeDim; i++) xw[i] = sw * xa[i];
-            double yw = sw * y;
-
-            double[] Px = new double[_activeDim];
-            for (int i = 0; i < _activeDim; i++)
-            {
-                double sPx = 0;
-                for (int j = 0; j < _activeDim; j++) sPx += _pActive[i, j] * xw[j];
-                Px[i] = sPx;
-            }
-
-            double denom = Lambda;
-            for (int i = 0; i < _activeDim; i++) denom += xw[i] * Px[i];
-            denom = Math.Max(1e-18, denom);
-
-            double[] K = new double[_activeDim];
-            for (int i = 0; i < _activeDim; i++) K[i] = Px[i] / denom;
-
-            double yhatw = 0;
-            for (int i = 0; i < _activeDim; i++) yhatw += _betaActive[i] * xw[i];
-            double ew = yw - yhatw;
-
-            for (int i = 0; i < _activeDim; i++) _betaActive[i] += K[i] * ew;
-
-            double[,] newP = new double[_activeDim, _activeDim];
-            for (int i = 0; i < _activeDim; i++)
-            {
-                for (int j = 0; j < _activeDim; j++)
-                {
-                    double kij = 0;
-                    for (int k = 0; k < _activeDim; k++) kij += K[i] * xw[k] * _pActive[k, j];
-                    newP[i, j] = (_pActive[i, j] - kij) / Lambda;
-                }
-            }
-            _pActive = newP;
-            SyncPublicState();
-            ComputeModelUncertainty();
-
-            return (yhat, e, w);
-        }
-
-        void AddHistory(double[] x, double y)
-        {
-            _xHistory.Enqueue((double[])x.Clone());
-            _yHistory.Enqueue(y);
-            while (_xHistory.Count > _historyLength)
-            {
-                _xHistory.Dequeue();
-                _yHistory.Dequeue();
-            }
-        }
-
-        double[] Compress(double[] x)
-        {
-            var xa = new double[_activeDim];
-            for (int i = 0; i < Dim; i++)
-            {
-                xa[_groupOf[i]] += x[i];
-            }
-            return xa;
-        }
-
-        void AdaptGroupingIfNeeded()
-        {
-            if (_xHistory.Count < _minSamplesForAdapt) return;
-
-            int[]? best = null;
-            foreach (var partition in _candidatePartitions)
-            {
-                if (IsSeparable(partition))
-                {
-                    best = partition;
-                    break;
-                }
-            }
-
-            if (best is null) return;
-            if (SamePartition(_groupOf, best)) return;
-            Reconfigure(best);
-        }
-
-        bool IsSeparable(int[] partition)
-        {
-            var rows = _xHistory.ToArray();
-            int m = rows.Length;
-            int p = PartitionGroupCount(partition);
-            if (m < p + 2) return false;
-
-            var means = new double[p];
-            var variances = new double[p];
-
-            foreach (var r in rows)
-            {
-                for (int j = 0; j < Dim; j++) means[partition[j]] += r[j];
-            }
-            for (int g = 0; g < p; g++) means[g] /= m;
-
-            foreach (var r in rows)
-            {
-                var agg = new double[p];
-                for (int j = 0; j < Dim; j++) agg[partition[j]] += r[j];
-                for (int g = 0; g < p; g++)
-                {
-                    double d = agg[g] - means[g];
-                    variances[g] += d * d;
-                }
-            }
-
-            var std = new double[p];
-            for (int g = 0; g < p; g++)
-            {
-                variances[g] = variances[g] / Math.Max(1, m - 1);
-                std[g] = Math.Sqrt(Math.Max(0.0, variances[g]));
-                if (!double.IsFinite(std[g]) || std[g] < _minFeatureStd) return false;
-            }
-
-            var corr = new double[p, p];
-            foreach (var r in rows)
-            {
-                var agg = new double[p];
-                for (int j = 0; j < Dim; j++) agg[partition[j]] += r[j];
-                for (int g1 = 0; g1 < p; g1++)
-                {
-                    double n1 = (agg[g1] - means[g1]) / std[g1];
-                    for (int g2 = g1; g2 < p; g2++)
-                    {
-                        double n2 = (agg[g2] - means[g2]) / std[g2];
-                        corr[g1, g2] += n1 * n2;
-                    }
-                }
-            }
-
-            for (int g1 = 0; g1 < p; g1++)
-            {
-                for (int g2 = g1; g2 < p; g2++)
-                {
-                    corr[g1, g2] /= Math.Max(1, m - 1);
-                    corr[g2, g1] = corr[g1, g2];
-                }
-            }
-
-            var eig = EigenvaluesSymmetric(corr);
-            if (eig.Length == 0) return false;
-
-            double maxEig = eig.Max();
-            double minEig = eig.Min();
-            if (!double.IsFinite(maxEig) || !double.IsFinite(minEig)) return false;
-            if (minEig <= 1e-9) return false;
-
-            double cond = maxEig / minEig;
-            return cond <= _maxCorrCondition;
-        }
-
-        void Reconfigure(int[] newGroupOf)
-        {
-            var fullBeta = (double[])Beta.Clone();
-            _groupOf = (int[])newGroupOf.Clone();
-            _activeDim = PartitionGroupCount(_groupOf);
-            _groupSizes = PartitionGroupSizes(_groupOf, Dim);
-
-            _betaActive = new double[_activeDim];
-            for (int j = 0; j < Dim; j++)
-            {
-                _betaActive[_groupOf[j]] += fullBeta[j];
-            }
-            for (int g = 0; g < _activeDim; g++)
-            {
-                _betaActive[g] /= Math.Max(1, _groupSizes[g]);
-            }
-
-            _pActive = new double[_activeDim, _activeDim];
-            for (int i = 0; i < _activeDim; i++) _pActive[i, i] = _p0;
-
-            SyncPublicState();
-        }
-
-        void SyncPublicState()
-        {
-            Array.Clear(Beta, 0, Beta.Length);
-            for (int j = 0; j < Dim; j++)
-            {
-                Beta[j] = _betaActive[_groupOf[j]];
-            }
-
-            P = new double[Dim, Dim];
-            for (int i = 0; i < Dim; i++)
-            {
-                int gi = _groupOf[i];
-                for (int j = 0; j < Dim; j++)
-                {
-                    int gj = _groupOf[j];
-                    P[i, j] = _pActive[gi, gj];
-                }
-            }
-        }
-
-        static bool SamePartition(int[] a, int[] b)
-        {
-            if (a.Length != b.Length) return false;
-            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
-            return true;
-        }
-
-        static int PartitionGroupCount(int[] partition) => partition.Max() + 1;
-
-        static int[] PartitionGroupSizes(int[] partition, int dim)
-        {
-            int groups = PartitionGroupCount(partition);
-            var sizes = new int[groups];
-            for (int i = 0; i < dim; i++) sizes[partition[i]]++;
-            return sizes;
-        }
-
-        static int PartitionMaxGroupSize(int[] partition, int dim)
-        {
-            var sizes = PartitionGroupSizes(partition, dim);
-            return sizes.Max();
-        }
-
-        static int PartitionNonSingletonCount(int[] partition, int dim)
-        {
-            var sizes = PartitionGroupSizes(partition, dim);
-            int count = 0;
-            for (int i = 0; i < sizes.Length; i++) if (sizes[i] > 1) count++;
-            return count;
-        }
-
-        static string PartitionSignature(int[] partition) => string.Join(",", partition);
-
-        void ComputeModelUncertainty()
-        {
-            var xs = _xHistory.ToArray();
-            var ys = _yHistory.ToArray();
-            int n = Math.Min(xs.Length, ys.Length);
-
-            if (n <= 0)
-            {
-                ResidualCount = 0;
-                ResidualMean = 0.0;
-                ResidualStdDev = double.NaN;
-                return;
-            }
-
-            double sum = 0.0;
-            var residuals = new double[n];
-            for (int i = 0; i < n; i++)
-            {
-                double r = ys[i] - Predict(xs[i]);
-                residuals[i] = r;
-                sum += r;
-            }
-
-            double mean = sum / n;
-            double var = 0.0;
-            for (int i = 0; i < n; i++)
-            {
-                double d = residuals[i] - mean;
-                var += d * d;
-            }
-
-            var /= Math.Max(1, n - 1);
-            ResidualCount = n;
-            ResidualMean = mean;
-            ResidualStdDev = Math.Sqrt(Math.Max(0.0, var));
-        }
-
-        static List<int[]> GeneratePartitions(int dim)
-        {
-            var result = new List<int[]>();
-            if (dim <= 0) return result;
-
-            var part = new int[dim];
-            part[0] = 0;
-            var sizes = new List<int> { 1 };
-
-            void Recurse(int idx, int groups)
-            {
-                if (idx == dim)
-                {
-                    result.Add((int[])part.Clone());
-                    return;
-                }
-
-                for (int g = 0; g < groups; g++)
-                {
-                    part[idx] = g;
-                    sizes[g]++;
-                    Recurse(idx + 1, groups);
-                    sizes[g]--;
-                }
-
-                part[idx] = groups;
-                sizes.Add(1);
-                Recurse(idx + 1, groups + 1);
-                sizes.RemoveAt(sizes.Count - 1);
-            }
-
-            Recurse(1, 1);
-            return result;
-        }
-
-        static double[] EigenvaluesSymmetric(double[,] matrix)
-        {
-            int n = matrix.GetLength(0);
-            if (n == 0) return Array.Empty<double>();
-
-            var a = (double[,])matrix.Clone();
-            int maxIter = 20 * n * n;
-            for (int iter = 0; iter < maxIter; iter++)
-            {
-                int p = 0, q = 1;
-                double maxOff = 0.0;
-                for (int i = 0; i < n; i++)
-                {
-                    for (int j = i + 1; j < n; j++)
-                    {
-                        double v = Math.Abs(a[i, j]);
-                        if (v > maxOff)
-                        {
-                            maxOff = v;
-                            p = i;
-                            q = j;
-                        }
-                    }
-                }
-
-                if (maxOff < 1e-10) break;
-
-                double app = a[p, p];
-                double aqq = a[q, q];
-                double apq = a[p, q];
-                double phi = 0.5 * Math.Atan2(2.0 * apq, aqq - app);
-                double c = Math.Cos(phi);
-                double s = Math.Sin(phi);
-
-                for (int k = 0; k < n; k++)
-                {
-                    if (k == p || k == q) continue;
-                    double aik = a[p, k];
-                    double aqk = a[q, k];
-                    a[p, k] = c * aik - s * aqk;
-                    a[k, p] = a[p, k];
-                    a[q, k] = s * aik + c * aqk;
-                    a[k, q] = a[q, k];
-                }
-
-                double appNew = c * c * app - 2.0 * s * c * apq + s * s * aqq;
-                double aqqNew = s * s * app + 2.0 * s * c * apq + c * c * aqq;
-                a[p, p] = appNew;
-                a[q, q] = aqqNew;
-                a[p, q] = 0.0;
-                a[q, p] = 0.0;
-            }
-
-            var evals = new double[n];
-            for (int i = 0; i < n; i++) evals[i] = a[i, i];
-            return evals;
-        }
-    }
-
     public class CalibratorCorrector
     {
-        const double P0 = 1e7;
+        public record AlphaCalibrationSituation(
+            DateTime Time,
+            double TBha,
+            double Pi,
+            double Pa,
+            double Hp,
+            double Rho,
+            double Theta,
+            double Q);
 
-        // Forgetting factors (keep close to your existing)
-        const double LambdaArtifacts = 0.998;
-        const double LambdaOffBottom = 0.996;
+        public record AlphaCalibrationResult(
+            double A0,
+            double A1,
+            double A2,
+            double A3,
+            double A4,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse);
+
+        public record AlphaStreamingPoint(
+            DateTime Time,
+            double TBha,
+            double PredictedTBha,
+            double Error,
+            int ActiveParameterCount,
+            string ActiveMask);
+
+        public record AlphaStreamingResult(
+            double A0,
+            double A1,
+            double A2,
+            double A3,
+            double A4,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse,
+            IReadOnlyList<AlphaStreamingPoint> Points);
+
+        public record GammaCalibrationSituation(
+            DateTime Time,
+            double Td,
+            double Bd,
+            double TBha,
+            double Rho,
+            double H,
+            double Hp,
+            double L,
+            double Lp,
+            double Q);
+
+        public record GammaCalibrationFromTpSituation(
+            DateTime Time,
+            double Tp,
+            double TBha,
+            double Rho,
+            double Hp,
+            double L,
+            double Lp,
+            double Q);
+
+        public record GammaCalibrationFromTdlSituation(
+            DateTime Time,
+            double Tdl,
+            double TBha,
+            double Rho,
+            double Hp,
+            double L,
+            double Lp,
+            double Q);
+
+        public record GammaCalibrationResult(
+            double G1,
+            double G2,
+            double G3,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse);
+
+        public record BetaCalibrationSituation(
+            DateTime Time,
+            double TTopSideOff,
+            double H,
+            double Rho,
+            double Pi,
+            double Pa,
+            double Q,
+            double L);
+
+        public record BetaCalibrationResult(
+            double B0,
+            double B1,
+            double B2,
+            double B3,
+            double B4,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse);
+
+        public record DCalibrationSituation(
+            DateTime Time,
+            double Tdl,
+            double Z,
+            double SignVelocity);
+
+        public record DCalibrationResult(
+            double D0,
+            double D1,
+            double D2,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse);
+
+        public record CCalibrationSituation(
+            DateTime Time,
+            double Tp,
+            double Z,
+            double Q);
+
+        public record CCalibrationResult(
+            double C0,
+            double C1,
+            double C2,
+            double C3,
+            double C4,
+            double C5,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse);
+
+        record LinearSituation(DateTime Time, double[] X, double Y);
+
+        record AdaptiveLinearResult(
+            double[] Coef,
+            int Count,
+            double MeanError,
+            double StdError,
+            double Mae,
+            double Rmse,
+            int ActiveMask,
+            int ActiveCount);
 
         static readonly object _lock = new();
 
         // α-model (downhole off-bottom): 5 params
         // T_BHA,off = α0 cosθ + α1 ρ cosθ + α2 ρ h_p + α3 (pi-pa) + α4 ρ Q^2
-        static readonly Rls RlsAlpha = new(5, LambdaOffBottom, P0, huberK: 2.0);
 
         // β-model (surface off-bottom): 5 params (no intercept per README)
         // T_top-side,off = β0 h + β1 ρ h + β2 (pi-pa) + β3 ρ Q^2 + β4 ρ l Q^2
-        static readonly Rls RlsBeta = new(5, LambdaOffBottom, P0, huberK: 2.0);
 
         // Artifacts with instrumented sub:
         // f_p(z,Q) on [1, z, z^2, Q, Q^2, zQ]
-        static readonly Rls RlsFp_WithTd = new(6, LambdaArtifacts, P0, huberK: 1.5);
         // f_dl(z,sign) on [1, z, sign(dz)]
-        static readonly Rls RlsFdl_WithTd = new(3, LambdaArtifacts, P0, huberK: 1.5);
 
         // Unconnected (in-slips) calibrations:
         // b_d = Td
-        static readonly Rls RlsBd = new(1, LambdaArtifacts, P0, huberK: 1.5);
         // d0 + d1 z + d2 sign(dz) = Tdl
-        static readonly Rls RlsFdl_Unconnected = new(3, LambdaArtifacts, P0, huberK: 1.5);
         // c0 + c1 z + c2 z^2 = Tp (Q=0 in unconnected)
-        static readonly Rls RlsFp_Unconnected = new(3, LambdaArtifacts, P0, huberK: 1.5);
 
         // Shared gamma model in connected conditions:
-        // Td - b_d - TBHA = γ1Δh + γ2ρΔh + γ3ρ(l-l_p)Q^2
-        // x = [Δh, ρΔh, ρ(l-l_p)Q^2]
-        static readonly Rls RlsGamma = new(3, LambdaArtifacts, P0, huberK: 1.5);
+        // Td - b_d - TBHA = γ1 h_p + γ2 ρ h_p + γ3ρ(l-l_p)Q^2
+        // x = [h_p, ρh_p, ρ(l-l_p)Q^2]
 
         // Artifacts without instrumented sub, after removing shared gamma contribution:
-        // Tp - TBHA - γ1Δh - γ2ρΔh - γ3ρ(l-l_p)Q^2 = f_p(z,Q)
+        // Tp - TBHA - γ1 h_p - γ2 ρ h_p - γ3ρ(l-l_p)Q^2 = f_p(z,Q)
         // x = [1,z,z^2,Q,Q^2,zQ]
-        static readonly Rls RlsFp_NoTd = new(6, LambdaArtifacts, P0, huberK: 1.5);
 
-        // Tdl - TBHA - γ1Δh - γ2ρΔh - γ3ρ(l-l_p)Q^2 = f_dl(z,sign)
+        // Tdl - TBHA - γ1 h_p - γ2 ρ h_p - γ3ρ(l-l_p)Q^2 = f_dl(z,sign)
         // x = [1,z,sign]
-        static readonly Rls RlsFdl_NoTd = new(3, LambdaArtifacts, P0, huberK: 1.5);
 
         static readonly List<SurfaceSample> Surface = new(capacity: 50000);
+        static readonly List<AlphaCalibrationSituation> AlphaSituations = new(capacity: 50000);
+        static AlphaCalibrationResult AlphaAdaptive = new(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, 0, double.NaN, double.NaN, double.NaN, double.NaN);
+        const int MaxAlphaSituations = 20000;
+        static readonly List<LinearSituation> BetaSituations = new(capacity: 50000);
+        static AdaptiveLinearResult BetaAdaptive = new(new double[5], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> GammaSituations = new(capacity: 50000);
+        static AdaptiveLinearResult GammaAdaptive = new(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> BdSituations = new(capacity: 50000);
+        static AdaptiveLinearResult BdAdaptive = new(new double[1], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> FpUnconnectedSituations = new(capacity: 50000);
+        static AdaptiveLinearResult FpUnconnectedAdaptive = new(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> FdlUnconnectedSituations = new(capacity: 50000);
+        static AdaptiveLinearResult FdlUnconnectedAdaptive = new(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> FpWithTdSituations = new(capacity: 50000);
+        static AdaptiveLinearResult FpWithTdAdaptive = new(new double[6], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> FdlWithTdSituations = new(capacity: 50000);
+        static AdaptiveLinearResult FdlWithTdAdaptive = new(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> FpNoTdSituations = new(capacity: 50000);
+        static AdaptiveLinearResult FpNoTdAdaptive = new(new double[6], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        static readonly List<LinearSituation> FdlNoTdSituations = new(capacity: 50000);
+        static AdaptiveLinearResult FdlNoTdAdaptive = new(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+        const int MaxGenericSituations = 20000;
 
         // Legacy behaviour for recommendations (kept)
         static bool _wasOnBottom = false;
@@ -566,6 +269,763 @@ namespace DWIS.Service.WOBCorrections.Model
         static double? _initialBd = null;
         static double? _initialC0 = null;
         static double? _initialD0 = null;
+
+        public static void ResetState()
+        {
+            lock (_lock)
+            {
+                Surface.Clear();
+                AlphaSituations.Clear();
+                BetaSituations.Clear();
+                GammaSituations.Clear();
+                BdSituations.Clear();
+                FpUnconnectedSituations.Clear();
+                FdlUnconnectedSituations.Clear();
+                FpWithTdSituations.Clear();
+                FdlWithTdSituations.Clear();
+                FpNoTdSituations.Clear();
+                FdlNoTdSituations.Clear();
+
+                AlphaAdaptive = new AlphaCalibrationResult(
+                    double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
+                    0, double.NaN, double.NaN, double.NaN, double.NaN);
+                BetaAdaptive = new AdaptiveLinearResult(new double[5], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                GammaAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                BdAdaptive = new AdaptiveLinearResult(new double[1], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                FpUnconnectedAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                FdlUnconnectedAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                FpWithTdAdaptive = new AdaptiveLinearResult(new double[6], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                FdlWithTdAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                FpNoTdAdaptive = new AdaptiveLinearResult(new double[6], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+                FdlNoTdAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+
+                _wasOnBottom = false;
+                _storedSurfaceWob = null;
+                _logCounter = 0;
+                _initialBd = null;
+                _initialC0 = null;
+                _initialD0 = null;
+            }
+        }
+
+        public static AlphaCalibrationResult CalibrateAlphaFromSituations(IEnumerable<AlphaCalibrationSituation> situations)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var valid = situations
+                .Where(s =>
+                    double.IsFinite(s.TBha) &&
+                    double.IsFinite(s.Pi) &&
+                    double.IsFinite(s.Pa) &&
+                    double.IsFinite(s.Hp) &&
+                    double.IsFinite(s.Rho) &&
+                    double.IsFinite(s.Theta) &&
+                    double.IsFinite(s.Q))
+                .ToList();
+
+            if (valid.Count == 0)
+            {
+                return new AlphaCalibrationResult(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, 0, double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+
+            const double ridge = 1e-9;
+            if (!TryFindBestSubset(valid, valid.Count, Math.Max(8, 5 + 2), ridge, out var a, out _, out _))
+            {
+                return new AlphaCalibrationResult(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, 0, double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+            double sum = 0.0;
+            double sumSq = 0.0;
+            double sumAbs = 0.0;
+            int n = 0;
+            foreach (var s in valid)
+            {
+                double cosTheta = Math.Cos(s.Theta);
+                double pred =
+                    a[0] * cosTheta +
+                    a[1] * s.Rho * cosTheta +
+                    a[2] * s.Rho * s.Hp +
+                    a[3] * (s.Pi - s.Pa) +
+                    a[4] * s.Rho * s.Q * s.Q;
+                double e = s.TBha - pred;
+                sum += e;
+                sumSq += e * e;
+                sumAbs += Math.Abs(e);
+                n++;
+            }
+
+            double mean = sum / n;
+            double rmse = Math.Sqrt(sumSq / n);
+            double mae = sumAbs / n;
+            double var = (sumSq / n) - (mean * mean);
+            double std = Math.Sqrt(Math.Max(0.0, var));
+
+            return new AlphaCalibrationResult(a[0], a[1], a[2], a[3], a[4], n, mean, std, mae, rmse);
+        }
+
+        public static AlphaStreamingResult CalibrateAlphaStreamingAdaptive(
+            IEnumerable<AlphaCalibrationSituation> situations,
+            int minSamplesPerModel = 8,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var valid = situations
+                .Where(s =>
+                    double.IsFinite(s.TBha) &&
+                    double.IsFinite(s.Pi) &&
+                    double.IsFinite(s.Pa) &&
+                    double.IsFinite(s.Hp) &&
+                    double.IsFinite(s.Rho) &&
+                    double.IsFinite(s.Theta) &&
+                    double.IsFinite(s.Q))
+                .OrderBy(s => s.Time)
+                .ToList();
+
+            if (valid.Count == 0)
+            {
+                return new AlphaStreamingResult(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, 0, double.NaN, double.NaN, double.NaN, double.NaN, Array.Empty<AlphaStreamingPoint>());
+            }
+
+            var points = new List<AlphaStreamingPoint>(valid.Count);
+            double[] lastBest = new double[5];
+            int lastMask = 1;
+
+            for (int i = 0; i < valid.Count; i++)
+            {
+                int n = i + 1;
+                bool ok = TryFindBestSubset(valid, n, minSamplesPerModel, ridge, out var bestCoef, out var bestMask, out _);
+
+                if (!ok || bestCoef is null)
+                {
+                    // Fallback to current single best previous model if stream is too short.
+                    bestCoef = (double[])lastBest.Clone();
+                    bestMask = lastMask;
+                }
+
+                lastBest = bestCoef;
+                lastMask = bestMask;
+
+                var s = valid[i];
+                double pred = PredictAlpha(s, bestCoef);
+                double err = s.TBha - pred;
+                points.Add(new AlphaStreamingPoint(
+                    Time: s.Time,
+                    TBha: s.TBha,
+                    PredictedTBha: pred,
+                    Error: err,
+                    ActiveParameterCount: CountBits(bestMask),
+                    ActiveMask: MaskToString(bestMask)));
+            }
+
+            double sum = 0.0;
+            double sumSq = 0.0;
+            double sumAbs = 0.0;
+            foreach (var p in points)
+            {
+                sum += p.Error;
+                sumSq += p.Error * p.Error;
+                sumAbs += Math.Abs(p.Error);
+            }
+            int count = points.Count;
+            double mean = sum / count;
+            double rmseAll = Math.Sqrt(sumSq / count);
+            double mae = sumAbs / count;
+            double var = (sumSq / count) - mean * mean;
+            double std = Math.Sqrt(Math.Max(0.0, var));
+
+            return new AlphaStreamingResult(
+                A0: lastBest[0],
+                A1: lastBest[1],
+                A2: lastBest[2],
+                A3: lastBest[3],
+                A4: lastBest[4],
+                Count: count,
+                MeanError: mean,
+                StdError: std,
+                Mae: mae,
+                Rmse: rmseAll,
+                Points: points);
+        }
+
+        public static GammaCalibrationResult CalibrateGammaFromSituations(
+            IEnumerable<GammaCalibrationSituation> situations,
+            int minSamplesPerModel = 8,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var linear = situations
+                .Where(s =>
+                    double.IsFinite(s.Td) &&
+                    double.IsFinite(s.Bd) &&
+                    double.IsFinite(s.TBha) &&
+                    double.IsFinite(s.Rho) &&
+                    double.IsFinite(s.H) &&
+                    double.IsFinite(s.Hp) &&
+                    double.IsFinite(s.L) &&
+                    double.IsFinite(s.Lp) &&
+                    double.IsFinite(s.Q))
+                .Select(s =>
+                {
+                    double x0 = s.Hp;
+                    double x1 = s.Rho * s.Hp;
+                    double x2 = s.Rho * (s.L - s.Lp) * s.Q * s.Q;
+                    double y = s.Td - s.Bd - s.TBha;
+                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, y);
+                })
+                .ToList();
+
+            if (linear.Count == 0)
+            {
+                return new GammaCalibrationResult(
+                    double.NaN, double.NaN, double.NaN, 0,
+                    double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+
+            var fit = CalibrateLinearAdaptive(linear, dim: 3, minSamplesPerModel, ridge);
+            var g = fit.Coef ?? new double[3];
+
+            return new GammaCalibrationResult(
+                G1: g.Length > 0 ? g[0] : double.NaN,
+                G2: g.Length > 1 ? g[1] : double.NaN,
+                G3: g.Length > 2 ? g[2] : double.NaN,
+                Count: fit.Count,
+                MeanError: fit.MeanError,
+                StdError: fit.StdError,
+                Mae: fit.Mae,
+                Rmse: fit.Rmse);
+        }
+
+        // Specific gamma calibration from:
+        // Tp - TBHA = γ1 h_p + γ2 ρ h_p + γ3 ρ(l-l_p)Q^2 (+ residual artifact terms)
+        public static GammaCalibrationResult CalibrateGammaFromTpSituations(
+            IEnumerable<GammaCalibrationFromTpSituation> situations,
+            int minSamplesPerModel = 8,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var linear = situations
+                .Where(s =>
+                    double.IsFinite(s.Tp) &&
+                    double.IsFinite(s.TBha) &&
+                    double.IsFinite(s.Rho) &&
+                    double.IsFinite(s.Hp) &&
+                    double.IsFinite(s.L) &&
+                    double.IsFinite(s.Lp) &&
+                    double.IsFinite(s.Q))
+                .Select(s =>
+                {
+                    double x0 = s.Hp;
+                    double x1 = s.Rho * s.Hp;
+                    double x2 = s.Rho * (s.L - s.Lp) * s.Q * s.Q;
+                    double y = s.Tp - s.TBha;
+                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, y);
+                })
+                .ToList();
+
+            return CalibrateGammaFromLinear(linear, minSamplesPerModel, ridge);
+        }
+
+        // Specific gamma calibration from:
+        // Tdl - TBHA = γ1 h_p + γ2 ρ h_p + γ3 ρ(l-l_p)Q^2 (+ residual artifact terms)
+        public static GammaCalibrationResult CalibrateGammaFromTdlSituations(
+            IEnumerable<GammaCalibrationFromTdlSituation> situations,
+            int minSamplesPerModel = 8,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var linear = situations
+                .Where(s =>
+                    double.IsFinite(s.Tdl) &&
+                    double.IsFinite(s.TBha) &&
+                    double.IsFinite(s.Rho) &&
+                    double.IsFinite(s.Hp) &&
+                    double.IsFinite(s.L) &&
+                    double.IsFinite(s.Lp) &&
+                    double.IsFinite(s.Q))
+                .Select(s =>
+                {
+                    double x0 = s.Hp;
+                    double x1 = s.Rho * s.Hp;
+                    double x2 = s.Rho * (s.L - s.Lp) * s.Q * s.Q;
+                    double y = s.Tdl - s.TBha;
+                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, y);
+                })
+                .ToList();
+
+            return CalibrateGammaFromLinear(linear, minSamplesPerModel, ridge);
+        }
+
+        static GammaCalibrationResult CalibrateGammaFromLinear(
+            IReadOnlyList<LinearSituation> linear,
+            int minSamplesPerModel,
+            double ridge)
+        {
+            if (linear.Count == 0)
+            {
+                return new GammaCalibrationResult(
+                    double.NaN, double.NaN, double.NaN, 0,
+                    double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+
+            var fit = CalibrateLinearAdaptive(linear, dim: 3, minSamplesPerModel, ridge);
+            var g = fit.Coef ?? new double[3];
+
+            return new GammaCalibrationResult(
+                G1: g.Length > 0 ? g[0] : double.NaN,
+                G2: g.Length > 1 ? g[1] : double.NaN,
+                G3: g.Length > 2 ? g[2] : double.NaN,
+                Count: fit.Count,
+                MeanError: fit.MeanError,
+                StdError: fit.StdError,
+                Mae: fit.Mae,
+                Rmse: fit.Rmse);
+        }
+
+        // Specific beta calibration from:
+        // T_top-side,off = β0 h + β1 ρh + β2 (pi-pa) + β3 ρQ^2 + β4 ρlQ^2
+        public static BetaCalibrationResult CalibrateBetaFromSituations(
+            IEnumerable<BetaCalibrationSituation> situations,
+            int minSamplesPerModel = 10,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var linear = situations
+                .Where(s =>
+                    double.IsFinite(s.TTopSideOff) &&
+                    double.IsFinite(s.H) &&
+                    double.IsFinite(s.Rho) &&
+                    double.IsFinite(s.Pi) &&
+                    double.IsFinite(s.Pa) &&
+                    double.IsFinite(s.Q) &&
+                    double.IsFinite(s.L))
+                .Select(s =>
+                {
+                    double x0 = s.H;
+                    double x1 = s.Rho * s.H;
+                    double x2 = s.Pi - s.Pa;
+                    double x3 = s.Rho * s.Q * s.Q;
+                    double x4 = s.Rho * s.L * s.Q * s.Q;
+                    return new LinearSituation(s.Time, new[] { x0, x1, x2, x3, x4 }, s.TTopSideOff);
+                })
+                .ToList();
+
+            if (linear.Count == 0)
+            {
+                return new BetaCalibrationResult(
+                    double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
+                    0, double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+
+            var fit = CalibrateLinearAdaptive(linear, dim: 5, minSamplesPerModel, ridge);
+            var b = fit.Coef ?? new double[5];
+
+            return new BetaCalibrationResult(
+                B0: b.Length > 0 ? b[0] : double.NaN,
+                B1: b.Length > 1 ? b[1] : double.NaN,
+                B2: b.Length > 2 ? b[2] : double.NaN,
+                B3: b.Length > 3 ? b[3] : double.NaN,
+                B4: b.Length > 4 ? b[4] : double.NaN,
+                Count: fit.Count,
+                MeanError: fit.MeanError,
+                StdError: fit.StdError,
+                Mae: fit.Mae,
+                Rmse: fit.Rmse);
+        }
+
+        // Specific d calibration in empty-block/in-slips conditions:
+        // T_dl = T_true + f_dl(z, sign(dz)), with T_true = 0 => T_dl = d0 + d1 z + d2 sign(dz)
+        public static DCalibrationResult CalibrateDFromSituations(
+            IEnumerable<DCalibrationSituation> situations,
+            int minSamplesPerModel = 8,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var linear = situations
+                .Where(s =>
+                    double.IsFinite(s.Tdl) &&
+                    double.IsFinite(s.Z) &&
+                    double.IsFinite(s.SignVelocity))
+                .Select(s =>
+                {
+                    double x0 = 1.0;
+                    double x1 = s.Z;
+                    double x2 = s.SignVelocity;
+                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, s.Tdl);
+                })
+                .ToList();
+
+            if (linear.Count == 0)
+            {
+                return new DCalibrationResult(
+                    double.NaN, double.NaN, double.NaN,
+                    0, double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+
+            var fit = CalibrateLinearAdaptive(linear, dim: 3, minSamplesPerModel, ridge);
+            var d = fit.Coef ?? new double[3];
+
+            return new DCalibrationResult(
+                D0: d.Length > 0 ? d[0] : double.NaN,
+                D1: d.Length > 1 ? d[1] : double.NaN,
+                D2: d.Length > 2 ? d[2] : double.NaN,
+                Count: fit.Count,
+                MeanError: fit.MeanError,
+                StdError: fit.StdError,
+                Mae: fit.Mae,
+                Rmse: fit.Rmse);
+        }
+
+        // Specific c calibration in empty-block/in-slips conditions:
+        // T_p = T_true + c0 + c1 z + c2 z^2 + c3 Q + c4 Q^2 + c5 zQ, with T_true = 0 in-slips
+        public static CCalibrationResult CalibrateCFromSituations(
+            IEnumerable<CCalibrationSituation> situations,
+            int minSamplesPerModel = 10,
+            double ridge = 1e-9)
+        {
+            if (situations is null) throw new ArgumentNullException(nameof(situations));
+
+            var linear = situations
+                .Where(s =>
+                    double.IsFinite(s.Tp) &&
+                    double.IsFinite(s.Z) &&
+                    double.IsFinite(s.Q))
+                .Select(s =>
+                {
+                    double x0 = 1.0;
+                    double x1 = s.Z;
+                    double x2 = s.Z * s.Z;
+                    double x3 = s.Q;
+                    double x4 = s.Q * s.Q;
+                    double x5 = s.Z * s.Q;
+                    return new LinearSituation(s.Time, new[] { x0, x1, x2, x3, x4, x5 }, s.Tp);
+                })
+                .ToList();
+
+            if (linear.Count == 0)
+            {
+                return new CCalibrationResult(
+                    double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
+                    0, double.NaN, double.NaN, double.NaN, double.NaN);
+            }
+
+            var fit = CalibrateLinearAdaptive(linear, dim: 6, minSamplesPerModel, ridge);
+            var c = fit.Coef ?? new double[6];
+
+            return new CCalibrationResult(
+                C0: c.Length > 0 ? c[0] : double.NaN,
+                C1: c.Length > 1 ? c[1] : double.NaN,
+                C2: c.Length > 2 ? c[2] : double.NaN,
+                C3: c.Length > 3 ? c[3] : double.NaN,
+                C4: c.Length > 4 ? c[4] : double.NaN,
+                C5: c.Length > 5 ? c[5] : double.NaN,
+                Count: fit.Count,
+                MeanError: fit.MeanError,
+                StdError: fit.StdError,
+                Mae: fit.Mae,
+                Rmse: fit.Rmse);
+        }
+
+        static void AppendAndRefit(
+            List<LinearSituation> store,
+            ref AdaptiveLinearResult result,
+            DateTime time,
+            double[] x,
+            double y,
+            int dim,
+            int minSamplesPerModel,
+            double ridge = 1e-9)
+        {
+            if (!double.IsFinite(y) || x.Length != dim || x.Any(v => !double.IsFinite(v))) return;
+            store.Add(new LinearSituation(time, (double[])x.Clone(), y));
+            if (store.Count > MaxGenericSituations)
+            {
+                int drop = store.Count - MaxGenericSituations;
+                store.RemoveRange(0, drop);
+            }
+            result = CalibrateLinearAdaptive(store, dim, minSamplesPerModel, ridge);
+        }
+
+        static AdaptiveLinearResult CalibrateLinearAdaptive(
+            IReadOnlyList<LinearSituation> data,
+            int dim,
+            int minSamplesPerModel = 8,
+            double ridge = 1e-9)
+        {
+            if (data.Count == 0)
+            {
+                return new AdaptiveLinearResult(new double[dim], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+            }
+
+            int n = data.Count;
+            int bestMask = -1;
+            double[]? bestCoef = null;
+            double bestScore = double.PositiveInfinity;
+
+            int maxMask = (1 << dim) - 1;
+            for (int mask = 1; mask <= maxMask; mask++)
+            {
+                int k = CountBits(mask);
+                int minN = Math.Max(minSamplesPerModel, k + 2);
+                if (n < minN) continue;
+                if (!FitSubsetGeneric(data, n, dim, mask, ridge, out var coef, out var rmse)) continue;
+                if (!double.IsFinite(rmse)) continue;
+                double score = n * Math.Log(rmse * rmse + 1e-18) + 2.0 * k;
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestMask = mask;
+                    bestCoef = coef;
+                }
+            }
+
+            if (bestCoef is null)
+            {
+                return new AdaptiveLinearResult(new double[dim], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
+            }
+
+            double sum = 0.0, sumSq = 0.0, sumAbs = 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                double pred = PredictLinear(bestCoef, data[i].X);
+                double e = data[i].Y - pred;
+                sum += e;
+                sumSq += e * e;
+                sumAbs += Math.Abs(e);
+            }
+            double mean = sum / n;
+            double rmseAll = Math.Sqrt(sumSq / n);
+            double mae = sumAbs / n;
+            double var = (sumSq / n) - (mean * mean);
+            double std = Math.Sqrt(Math.Max(0.0, var));
+            return new AdaptiveLinearResult(bestCoef, n, mean, std, mae, rmseAll, bestMask, CountBits(bestMask));
+        }
+
+        static bool FitSubsetGeneric(
+            IReadOnlyList<LinearSituation> data,
+            int n,
+            int dim,
+            int mask,
+            double ridge,
+            out double[] fullCoef,
+            out double rmse)
+        {
+            fullCoef = new double[dim];
+            rmse = double.NaN;
+            var idx = new List<int>(dim);
+            for (int j = 0; j < dim; j++) if (((mask >> j) & 1) != 0) idx.Add(j);
+            int k = idx.Count;
+            if (k == 0) return false;
+
+            var xtx = new double[k, k];
+            var xty = new double[k];
+            for (int r = 0; r < n; r++)
+            {
+                var xFull = data[r].X;
+                double y = data[r].Y;
+                for (int i = 0; i < k; i++)
+                {
+                    double xi = xFull[idx[i]];
+                    xty[i] += xi * y;
+                    for (int j = 0; j < k; j++) xtx[i, j] += xi * xFull[idx[j]];
+                }
+            }
+            for (int i = 0; i < k; i++) xtx[i, i] += ridge;
+            var sub = SolveLinearSystem(xtx, xty);
+            if (sub.Any(v => !double.IsFinite(v))) return false;
+            for (int i = 0; i < k; i++) fullCoef[idx[i]] = sub[i];
+
+            double sumSq = 0.0;
+            for (int r = 0; r < n; r++)
+            {
+                double pred = PredictLinear(fullCoef, data[r].X);
+                double e = data[r].Y - pred;
+                sumSq += e * e;
+            }
+            rmse = Math.Sqrt(sumSq / n);
+            return double.IsFinite(rmse);
+        }
+
+        static double PredictLinear(double[] coef, double[] x)
+        {
+            int n = Math.Min(coef.Length, x.Length);
+            double s = 0.0;
+            for (int i = 0; i < n; i++) s += coef[i] * x[i];
+            return s;
+        }
+
+        static bool TryFindBestSubset(
+            IReadOnlyList<AlphaCalibrationSituation> data,
+            int n,
+            int minSamplesPerModel,
+            double ridge,
+            out double[] bestCoef,
+            out int bestMask,
+            out double bestScore)
+        {
+            bestCoef = new double[5];
+            bestMask = 1;
+            bestScore = double.PositiveInfinity;
+            bool found = false;
+
+            for (int mask = 1; mask < (1 << 5); mask++)
+            {
+                int k = CountBits(mask);
+                int minN = Math.Max(minSamplesPerModel, k + 2);
+                if (n < minN) continue;
+
+                if (!FitSubset(data, n, mask, ridge, out var coef, out var rmse)) continue;
+                if (!double.IsFinite(rmse)) continue;
+
+                // AIC-like model selection: prioritize fit quality but penalize complexity.
+                double score = n * Math.Log(rmse * rmse + 1e-18) + 2.0 * k;
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestMask = mask;
+                    bestCoef = coef;
+                    found = true;
+                }
+            }
+
+            return found;
+        }
+
+        static bool FitSubset(
+            IReadOnlyList<AlphaCalibrationSituation> data,
+            int n,
+            int mask,
+            double ridge,
+            out double[] fullCoef,
+            out double rmse)
+        {
+            fullCoef = new double[5];
+            rmse = double.NaN;
+
+            var idx = new List<int>(5);
+            for (int j = 0; j < 5; j++) if (((mask >> j) & 1) != 0) idx.Add(j);
+            int k = idx.Count;
+            if (k == 0) return false;
+
+            var xtx = new double[k, k];
+            var xty = new double[k];
+
+            for (int r = 0; r < n; r++)
+            {
+                var xFull = AlphaFeatures(data[r]);
+                double y = data[r].TBha;
+                for (int i = 0; i < k; i++)
+                {
+                    double xi = xFull[idx[i]];
+                    xty[i] += xi * y;
+                    for (int j = 0; j < k; j++) xtx[i, j] += xi * xFull[idx[j]];
+                }
+            }
+
+            for (int i = 0; i < k; i++) xtx[i, i] += ridge;
+            var coefSub = SolveLinearSystem(xtx, xty);
+            if (coefSub.Any(v => !double.IsFinite(v))) return false;
+
+            for (int i = 0; i < k; i++) fullCoef[idx[i]] = coefSub[i];
+
+            double sumSq = 0.0;
+            for (int r = 0; r < n; r++)
+            {
+                double pred = PredictAlpha(data[r], fullCoef);
+                double e = data[r].TBha - pred;
+                sumSq += e * e;
+            }
+            rmse = Math.Sqrt(sumSq / n);
+            return double.IsFinite(rmse);
+        }
+
+        static double[] AlphaFeatures(AlphaCalibrationSituation s)
+        {
+            double cosTheta = Math.Cos(s.Theta);
+            return new[]
+            {
+                cosTheta,
+                s.Rho * cosTheta,
+                s.Rho * s.Hp,
+                s.Pi - s.Pa,
+                s.Rho * s.Q * s.Q
+            };
+        }
+
+        static double PredictAlpha(AlphaCalibrationSituation s, double[] a)
+        {
+            var x = AlphaFeatures(s);
+            return a[0] * x[0] + a[1] * x[1] + a[2] * x[2] + a[3] * x[3] + a[4] * x[4];
+        }
+
+        static int CountBits(int x)
+        {
+            int c = 0;
+            while (x != 0) { c += x & 1; x >>= 1; }
+            return c;
+        }
+
+        static string MaskToString(int mask)
+        {
+            // [a0,a1,a2,a3,a4] as 0/1 flags
+            return $"{((mask & 1) != 0 ? 1 : 0)}{((mask & 2) != 0 ? 1 : 0)}{((mask & 4) != 0 ? 1 : 0)}{((mask & 8) != 0 ? 1 : 0)}{((mask & 16) != 0 ? 1 : 0)}";
+        }
+
+        static double[] SolveLinearSystem(double[,] a, double[] b)
+        {
+            int n = b.Length;
+            var m = new double[n, n + 1];
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = 0; j < n; j++) m[i, j] = a[i, j];
+                m[i, n] = b[i];
+            }
+
+            for (int k = 0; k < n; k++)
+            {
+                int piv = k;
+                double pivAbs = Math.Abs(m[k, k]);
+                for (int r = k + 1; r < n; r++)
+                {
+                    double v = Math.Abs(m[r, k]);
+                    if (v > pivAbs) { pivAbs = v; piv = r; }
+                }
+                if (pivAbs < 1e-18)
+                {
+                    var nan = new double[n];
+                    for (int i = 0; i < n; i++) nan[i] = double.NaN;
+                    return nan;
+                }
+                if (piv != k)
+                {
+                    for (int c = k; c <= n; c++)
+                    {
+                        double tmp = m[k, c];
+                        m[k, c] = m[piv, c];
+                        m[piv, c] = tmp;
+                    }
+                }
+
+                double d = m[k, k];
+                for (int c = k; c <= n; c++) m[k, c] /= d;
+
+                for (int r = 0; r < n; r++)
+                {
+                    if (r == k) continue;
+                    double f = m[r, k];
+                    if (Math.Abs(f) < 1e-24) continue;
+                    for (int c = k; c <= n; c++) m[r, c] -= f * m[k, c];
+                }
+            }
+
+            var xOut = new double[n];
+            for (int i = 0; i < n; i++) xOut[i] = m[i, n];
+            return xOut;
+        }
 
         public static void Process(
             ILogger<IDWISWorker<ConfigurationForWOBCorrection>>? logger,
@@ -650,7 +1110,8 @@ namespace DWIS.Service.WOBCorrections.Model
                 }
 
                 bool onBottom = (w.BitDepth >= w.BottomHoleDepth - DepthMargin);
-                bool offBottom = (w.BitDepth <= w.BottomHoleDepth - DepthMargin);
+                // Strictly below the threshold to avoid overlap with onBottom at exact boundary.
+                bool offBottom = (w.BitDepth < w.BottomHoleDepth - DepthMargin);
                 bool isMoving = w.signVelocity != 0.0;
 
                 bool omegaOk = w.Dh.Omega >= MinDownholeRotationalSpeed;
@@ -672,7 +1133,6 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 // Pressures at same depth (downhole sample)
                 double dp = w.Dh.Pi - w.Dh.Pa;
-                double deltaH = h - hp; // (h - h_p)
                 double visc = rho * (l - lp) * Q * Q; // ρ(l-l_p)Q^2
 
                 // Determine what sensors we effectively have:
@@ -684,9 +1144,12 @@ namespace DWIS.Service.WOBCorrections.Model
                 if (_initialC0 is null && hasTp) _initialC0 = EstimateSlipsLevel(Surface, s => s.Tp, MinDistanceInSlips, DeltaTensionInSlips);
                 if (_initialD0 is null && hasTdl) _initialD0 = EstimateSlipsLevel(Surface, s => s.Tdl, MinDistanceInSlips, DeltaTensionInSlips);
 
-                double bdRef = GetReferenceLevel(hasTd ? w.Td : double.NaN, RlsBd.ResidualCount > 0 ? RlsBd.Beta[0] : double.NaN, _initialBd);
-                double c0Ref = GetReferenceLevel(hasTp ? w.Tp : double.NaN, RlsFp_Unconnected.ResidualCount > 0 ? RlsFp_Unconnected.Beta[0] : double.NaN, _initialC0);
-                double d0Ref = GetReferenceLevel(hasTdl ? w.Tdl : double.NaN, RlsFdl_Unconnected.ResidualCount > 0 ? RlsFdl_Unconnected.Beta[0] : double.NaN, _initialD0);
+                double bdConst = BdAdaptive.Count > 0 && BdAdaptive.Coef.Length > 0 ? BdAdaptive.Coef[0] : double.NaN;
+                double c0Const = FpUnconnectedAdaptive.Count > 0 && FpUnconnectedAdaptive.Coef.Length > 0 ? FpUnconnectedAdaptive.Coef[0] : double.NaN;
+                double d0Const = FdlUnconnectedAdaptive.Count > 0 && FdlUnconnectedAdaptive.Coef.Length > 0 ? FdlUnconnectedAdaptive.Coef[0] : double.NaN;
+                double bdRef = GetReferenceLevel(hasTd ? w.Td : double.NaN, bdConst, _initialBd);
+                double c0Ref = GetReferenceLevel(hasTp ? w.Tp : double.NaN, c0Const, _initialC0);
+                double d0Ref = GetReferenceLevel(hasTdl ? w.Tdl : double.NaN, d0Const, _initialD0);
 
                 int slipsVotes = 0;
                 int slipsConsidered = 0;
@@ -697,13 +1160,13 @@ namespace DWIS.Service.WOBCorrections.Model
                 bool isUnconnected = offBottom && isMoving && slipsConsidered > 0 && (2 * slipsVotes >= slipsConsidered);
                 bool isConnectedForCalibration = allowCalibrationUpdate && !isUnconnected;
                 bool isUnconnectedForCalibration = offBottom && isMoving && isUnconnected;
-                double bd = RlsBd.ResidualCount > 0 ? RlsBd.Beta[0] : (_initialBd ?? 0.0);
+                double bd = BdAdaptive.Count > 0 && BdAdaptive.Coef.Length > 0 ? BdAdaptive.Coef[0] : (_initialBd ?? 0.0);
 
                 if (isUnconnectedForCalibration)
                 {
-                    if (hasTd) RlsBd.Update(new[] { 1.0 }, w.Td);
-                    if (hasTp) RlsFp_Unconnected.Update(new[] { 1.0, z, z * z }, w.Tp);
-                    if (hasTdl) RlsFdl_Unconnected.Update(new[] { 1.0, z, w.signVelocity }, w.Tdl);
+                    if (hasTd) AppendAndRefit(BdSituations, ref BdAdaptive, w.EndTime, new[] { 1.0 }, w.Td, 1, 8);
+                    if (hasTp) AppendAndRefit(FpUnconnectedSituations, ref FpUnconnectedAdaptive, w.EndTime, new[] { 1.0, z, z * z }, w.Tp, 3, 8);
+                    if (hasTdl) AppendAndRefit(FdlUnconnectedSituations, ref FdlUnconnectedAdaptive, w.EndTime, new[] { 1.0, z, w.signVelocity }, w.Tdl, 3, 8);
                 }
 
                 // ========= 1) Calibrate α-model from downhole tension =========
@@ -719,16 +1182,32 @@ namespace DWIS.Service.WOBCorrections.Model
 
                 if (isConnectedForCalibration && hasDownholeTension)
                 {
-                    RlsAlpha.Update(xAlpha, w.Dh.TBha!.Value);
+                    AlphaSituations.Add(new AlphaCalibrationSituation(
+                        Time: w.Dh.Time,
+                        TBha: w.Dh.TBha!.Value,
+                        Pi: w.Dh.Pi,
+                        Pa: w.Dh.Pa,
+                        Hp: hp,
+                        Rho: rho,
+                        Theta: theta,
+                        Q: Q));
+
+                    if (AlphaSituations.Count > MaxAlphaSituations)
+                    {
+                        int drop = AlphaSituations.Count - MaxAlphaSituations;
+                        AlphaSituations.RemoveRange(0, drop);
+                    }
+
+                    AlphaAdaptive = CalibrateAlphaFromSituations(AlphaSituations);
                 }
 
                 // ========= 1.b) Calibrate shared gamma terms =========
                 // If Td and downhole tension are both present:
-                // Td - b_d - TBHA = γ1Δh + γ2ρΔh + γ3ρ(l-l_p)Q^2
-                double[] xGamma = new[] { deltaH, rho * deltaH, visc };
+                // Td - b_d - TBHA = γ1 h_p + γ2ρ h_p + γ3ρ(l-l_p)Q^2
+                double[] xGamma = new[] { hp, rho * hp, visc };
                 if (isConnectedForCalibration && hasTd && hasDownholeTension)
                 {
-                    RlsGamma.Update(xGamma, w.Td - bd - w.Dh.TBha!.Value);
+                    AppendAndRefit(GammaSituations, ref GammaAdaptive, w.EndTime, xGamma, w.Td - bd - w.Dh.TBha!.Value, 3, 8);
                 }
 
                 // ========= 2) Calibrate artifacts =========
@@ -745,15 +1224,15 @@ namespace DWIS.Service.WOBCorrections.Model
 
                     if (isConnectedForCalibration)
                     {
-                        if (hasTp) RlsFp_WithTd.Update(xFp, w.Tp - (w.Td - bd));
-                        if (hasTdl) RlsFdl_WithTd.Update(xFdl, w.Tdl - (w.Td - bd));
+                        if (hasTp) AppendAndRefit(FpWithTdSituations, ref FpWithTdAdaptive, w.EndTime, xFp, w.Tp - (w.Td - bd), 6, 10);
+                        if (hasTdl) AppendAndRefit(FdlWithTdSituations, ref FdlWithTdAdaptive, w.EndTime, xFdl, w.Tdl - (w.Td - bd), 3, 8);
                     }
-                    fp = isUnconnected && RlsFp_Unconnected.ResidualCount > 0
-                        ? RlsFp_Unconnected.Predict(new[] { 1.0, z, z * z })
-                        : RlsFp_WithTd.Predict(xFp);
-                    fdl = isUnconnected && RlsFdl_Unconnected.ResidualCount > 0
-                        ? RlsFdl_Unconnected.Predict(new[] { 1.0, z, w.signVelocity })
-                        : RlsFdl_WithTd.Predict(xFdl);
+                    fp = isUnconnected && FpUnconnectedAdaptive.Count > 0
+                        ? PredictLinear(FpUnconnectedAdaptive.Coef, new[] { 1.0, z, z * z })
+                        : PredictLinear(FpWithTdAdaptive.Coef, xFp);
+                    fdl = isUnconnected && FdlUnconnectedAdaptive.Count > 0
+                        ? PredictLinear(FdlUnconnectedAdaptive.Coef, new[] { 1.0, z, w.signVelocity })
+                        : PredictLinear(FdlWithTdAdaptive.Coef, xFdl);
                 }
                 else if (hasDownholeTension)
                 {
@@ -761,31 +1240,30 @@ namespace DWIS.Service.WOBCorrections.Model
                     double[] xFp = { 1.0, z, z * z, Q, Q * Q, z * Q };
                     double[] xFdl = { 1.0, z, w.signVelocity };
 
-                    double fpPred = RlsFp_NoTd.Predict(xFp);
-                    double fdlPred = RlsFdl_NoTd.Predict(xFdl);
-
-                    // Jointly refine gamma using both sensors when available.
-                    if (isConnectedForCalibration)
-                    {
-                        if (hasTp) RlsGamma.Update(xGamma, w.Tp - w.Dh.TBha!.Value - fpPred);
-                        if (hasTdl) RlsGamma.Update(xGamma, w.Tdl - w.Dh.TBha!.Value - fdlPred);
-                    }
-
-                    var g = RlsGamma.Beta;
-                    double gammaTerm = g[0] * deltaH + g[1] * rho * deltaH + g[2] * visc;
+                    double fpPred = PredictLinear(FpNoTdAdaptive.Coef, xFp);
+                    double fdlPred = PredictLinear(FdlNoTdAdaptive.Coef, xFdl);
 
                     if (isConnectedForCalibration)
                     {
-                        if (hasTp) RlsFp_NoTd.Update(xFp, w.Tp - w.Dh.TBha!.Value - gammaTerm);
-                        if (hasTdl) RlsFdl_NoTd.Update(xFdl, w.Tdl - w.Dh.TBha!.Value - gammaTerm);
+                        if (!hasTd && hasTp) AppendAndRefit(GammaSituations, ref GammaAdaptive, w.EndTime, xGamma, w.Tp - fpPred + w.Dh.TBha!.Value, 3, 8);
+                        if (!hasTd && !hasTp && hasTdl) AppendAndRefit(GammaSituations, ref GammaAdaptive, w.EndTime, xGamma, w.Tdl - fdlPred + w.Dh.TBha!.Value, 3, 8);
                     }
 
-                    fp = isUnconnected && RlsFp_Unconnected.ResidualCount > 0
-                        ? RlsFp_Unconnected.Predict(new[] { 1.0, z, z * z })
-                        : RlsFp_NoTd.Predict(xFp);
-                    fdl = isUnconnected && RlsFdl_Unconnected.ResidualCount > 0
-                        ? RlsFdl_Unconnected.Predict(new[] { 1.0, z, w.signVelocity })
-                        : RlsFdl_NoTd.Predict(xFdl);
+                    var g = GammaAdaptive.Coef;
+                    double gammaTerm = g[0] * hp + g[1] * rho * hp + g[2] * visc;
+
+                    if (isConnectedForCalibration)
+                    {
+                        if (hasTp) AppendAndRefit(FpNoTdSituations, ref FpNoTdAdaptive, w.EndTime, xFp, w.Tp - w.Dh.TBha!.Value - gammaTerm, 6, 10);
+                        if (hasTdl) AppendAndRefit(FdlNoTdSituations, ref FdlNoTdAdaptive, w.EndTime, xFdl, w.Tdl - w.Dh.TBha!.Value - gammaTerm, 3, 8);
+                    }
+
+                    fp = isUnconnected && FpUnconnectedAdaptive.Count > 0
+                        ? PredictLinear(FpUnconnectedAdaptive.Coef, new[] { 1.0, z, z * z })
+                        : PredictLinear(FpNoTdAdaptive.Coef, xFp);
+                    fdl = isUnconnected && FdlUnconnectedAdaptive.Count > 0
+                        ? PredictLinear(FdlUnconnectedAdaptive.Coef, new[] { 1.0, z, w.signVelocity })
+                        : PredictLinear(FdlNoTdAdaptive.Coef, xFdl);
                 }
                 else
                 {
@@ -821,45 +1299,61 @@ namespace DWIS.Service.WOBCorrections.Model
                     rho * Q * Q,
                     rho * l * Q * Q
                 };
-
+                // Beta baseline calibration is restricted to off-bottom, rotating, off-slips windows.
                 if (isConnectedForCalibration && !double.IsNaN(TcorrForBeta))
                 {
-                    RlsBeta.Update(xBeta, TcorrForBeta);
+                    AppendAndRefit(BetaSituations, ref BetaAdaptive, w.EndTime, xBeta, TcorrForBeta, 5, 10);
+                }
+                if (isConnectedForCalibration && !double.IsNaN(TcorrForBeta))
+                {
+                    double sigmaAlpha = AlphaAdaptive.StdError;
+                    int nAlpha = AlphaAdaptive.Count;
+                    double sigmaBeta = BetaAdaptive.StdError;
+                    int nBeta = BetaAdaptive.Count;
+                    double sigmaBd = BdAdaptive.StdError;
+                    int nBd = BdAdaptive.Count;
+                    double sigmaGamma = GammaAdaptive.StdError;
+                    int nGamma = GammaAdaptive.Count;
                     logger?.LogInformation(
                         $"CalibratorCorrector: calibration updated. " +
                         $"state={(isUnconnected ? "unconnected" : "connected")} " +
-                        $"sigma(alpha)={RlsAlpha.ResidualStdDev:G6} n={RlsAlpha.ResidualCount} " +
-                        $"sigma(beta)={RlsBeta.ResidualStdDev:G6} n={RlsBeta.ResidualCount} " +
-                        $"sigma(bd)={RlsBd.ResidualStdDev:G6} n={RlsBd.ResidualCount} " +
-                        $"sigma(gamma)={RlsGamma.ResidualStdDev:G6} n={RlsGamma.ResidualCount} " +
-                        $"sigma(fp|slips)={RlsFp_Unconnected.ResidualStdDev:G6} n={RlsFp_Unconnected.ResidualCount} " +
-                        $"sigma(fdl|slips)={RlsFdl_Unconnected.ResidualStdDev:G6} n={RlsFdl_Unconnected.ResidualCount} " +
-                        $"sigma(fp|Td)={RlsFp_WithTd.ResidualStdDev:G6} n={RlsFp_WithTd.ResidualCount} " +
-                        $"sigma(fdl|Td)={RlsFdl_WithTd.ResidualStdDev:G6} n={RlsFdl_WithTd.ResidualCount} " +
-                        $"sigma(fp|noTd)={RlsFp_NoTd.ResidualStdDev:G6} n={RlsFp_NoTd.ResidualCount} " +
-                        $"sigma(fdl|noTd)={RlsFdl_NoTd.ResidualStdDev:G6} n={RlsFdl_NoTd.ResidualCount}");
+                        $"sigma(alpha)={sigmaAlpha:G6} n={nAlpha} " +
+                        $"sigma(beta)={sigmaBeta:G6} n={nBeta} " +
+                        $"sigma(bd)={sigmaBd:G6} n={nBd} " +
+                        $"sigma(gamma)={sigmaGamma:G6} n={nGamma} " +
+                        $"sigma(fp|slips)={FpUnconnectedAdaptive.StdError:G6} n={FpUnconnectedAdaptive.Count} " +
+                        $"sigma(fdl|slips)={FdlUnconnectedAdaptive.StdError:G6} n={FdlUnconnectedAdaptive.Count} " +
+                        $"sigma(fp|Td)={FpWithTdAdaptive.StdError:G6} n={FpWithTdAdaptive.Count} " +
+                        $"sigma(fdl|Td)={FdlWithTdAdaptive.StdError:G6} n={FdlWithTdAdaptive.Count} " +
+                        $"sigma(fp|noTd)={FpNoTdAdaptive.StdError:G6} n={FpNoTdAdaptive.Count} " +
+                        $"sigma(fdl|noTd)={FdlNoTdAdaptive.StdError:G6} n={FdlNoTdAdaptive.Count}");
                 }
 
                 // ========= 5) Compute corrected WOB outputs =========
 
                 // Downhole corrected WOB 
                 // T_DWOB = T_BHA - α0 cosθ - α1 ρ cosθ - α2 ρ h_p - α3 (pi-pa) - α4 ρ Q^2
+                bool hasAlphaModel = TryGetAlphaModel(out var alphaModel);
+                double alphaBaseline =
+                    hasAlphaModel
+                    ? alphaModel[0] * cosTheta
+                      + alphaModel[1] * (rho * cosTheta)
+                      + alphaModel[2] * (rho * hp)
+                      + alphaModel[3] * dp
+                      + alphaModel[4] * (rho * Q * Q)
+                    : double.NaN;
+
                 double correctedDownholeWob = double.NaN;
-                if (hasDownholeTension)
+                if (hasDownholeTension && hasAlphaModel)
                 {
-                    var a = RlsAlpha.Beta;
-                    correctedDownholeWob =
-                        w.Dh.TBha!.Value
-                        - a[0] * cosTheta
-                        - a[1] * (rho * cosTheta)
-                        - a[2] * (rho * hp)
-                        - a[3] * dp
-                        - a[4] * (rho * Q * Q);
+                    correctedDownholeWob = w.Dh.TBha!.Value - alphaBaseline;
                 }
+                // convert from tension to weight (multiply by -1) and apply sign convention (positive WOB means pushing down)
+                correctedDownholeWob *= -1;
 
                 // Surface corrected WOB:
                 // F_SWOB = T_corr - beta0 h - beta1 ρ h - beta2 (pi-pa) - beta3 ρ Q^2 - beta4 ρ l Q^2
-                double betaPred = RlsBeta.Predict(xBeta);
+                double betaPred = PredictLinear(BetaAdaptive.Coef, xBeta);
 
                 // Choose which surface measurement you want to output as "CorrectedSurfaceWeightOnBit":
                 // If on-bottom, you may prefer Tp_corr or Td_corr depending on sensor installed; here: prefer Td if present.
@@ -870,15 +1364,16 @@ namespace DWIS.Service.WOBCorrections.Model
                     double.NaN;
 
                 // F_SWOB1 from beta-model
-                double fSwob1 = TcorrForOutput - betaPred;
+                double fSwob1 = BetaAdaptive.Count > 0 ? (TcorrForOutput - betaPred) : double.NaN;
                 double sigmaSensor =
-                    hasTd ? RlsBd.ResidualStdDev :
-                    hasTp ? (isUnconnected ? RlsFp_Unconnected.ResidualStdDev : RlsFp_NoTd.ResidualStdDev) :
-                    hasTdl ? (isUnconnected ? RlsFdl_Unconnected.ResidualStdDev : RlsFdl_NoTd.ResidualStdDev) :
+                    hasTd ? BdAdaptive.StdError :
+                    hasTp ? (isUnconnected ? FpUnconnectedAdaptive.StdError : FpNoTdAdaptive.StdError) :
+                    hasTdl ? (isUnconnected ? FdlUnconnectedAdaptive.StdError : FdlNoTdAdaptive.StdError) :
                     double.NaN;
-                double sigma1 = CombineSigmas(sigmaSensor, RlsBeta.ResidualStdDev);
+                double sigma1 = CombineSigmas(sigmaSensor, BetaAdaptive.StdError);
 
-                // F_SWOB2 from gamma-model + downhole tension (if available/calibrated)
+                // F_SWOB2 from README:
+                // F_SWOB2 = T_corr - gamma1*h_p + gamma2*rho*h_p + gamma3*rho*(l-l_p)*Q^2 + T_BHA
                 double fSwob2 = double.NaN;
                 double sigma2 = double.NaN;
                 if (hasDownholeTension && !double.IsNaN(TcorrForOutput))
@@ -889,25 +1384,37 @@ namespace DWIS.Service.WOBCorrections.Model
                     {
                         fSwob2 =
                             TcorrForOutput
-                            - g1 * deltaH
-                            + g2 * rho * deltaH
-                            + g3 * visc
-                            + w.Dh.TBha!.Value;
+                            - g1 * hp
+                            - g2 * rho * hp
+                            - g3 * visc
+                            - w.Dh.TBha!.Value;
                         sigma2 = CombineSigmas(sigmaSensor, sigmaGamma);
                     }
                 }
 
                 // Gaussian sensor fusion of SWOB estimates using inverse-variance weights
                 double correctedSurfaceWob = FuseGaussian(fSwob1, sigma1, fSwob2, sigma2, out var fusedSigma);
+                correctedSurfaceWob *= -1; // apply sign convention (positive WOB means pushing down)
 
-                if (correctedMeasurements.CorrectedSurfaceWeightOnBit is not null && !double.IsNaN(correctedSurfaceWob))
+                // WOB reporting policy:
+                // - in-slips/unconnected => do not report WOB
+                // - off-slips but not rotating => do not report WOB
+                bool shouldReportWob = !isUnconnected && omegaOk;
+
+                if (correctedMeasurements.CorrectedSurfaceWeightOnBit is not null)
                 {
-                    correctedMeasurements.CorrectedSurfaceWeightOnBit.Value = correctedSurfaceWob;
+                    correctedMeasurements.CorrectedSurfaceWeightOnBit.Value =
+                        (shouldReportWob && !double.IsNaN(correctedSurfaceWob))
+                        ? correctedSurfaceWob
+                        : null;
                 }
 
-                if (correctedMeasurements.CorrectedDownholeWeightOnBit is not null && !double.IsNaN(correctedDownholeWob))
+                if (correctedMeasurements.CorrectedDownholeWeightOnBit is not null)
                 {
-                    correctedMeasurements.CorrectedDownholeWeightOnBit.Value = correctedDownholeWob;
+                    correctedMeasurements.CorrectedDownholeWeightOnBit.Value =
+                        (shouldReportWob && !double.IsNaN(correctedDownholeWob))
+                        ? correctedDownholeWob
+                        : null;
                 }
 
                 if (correctedMeasurements.CorrectedHookLoadAtTopDrive is not null && !double.IsNaN(Tp_corr))
@@ -1111,12 +1618,29 @@ namespace DWIS.Service.WOBCorrections.Model
                 return (mad / den) > maxRelTMad;
             }
 
-            if (!double.IsNaN(w.Td) && !double.IsNaN(w.TdMad) && BadRel(w.TdMad, w.Td)) return false;
-            if (!double.IsNaN(w.Tp) && !double.IsNaN(w.TpMad) && BadRel(w.TpMad, w.Tp)) return false;
-            if (!double.IsNaN(w.Tdl) && !double.IsNaN(w.TdlMad) && BadRel(w.TdlMad, w.Tdl)) return false;
+            bool hasTopsideTension = false;
+            bool hasUsableTopsideTension = false;
 
-            if (w.BitDepthMad > maxDepthMad) return false;
-            if (w.BottomHoleDepthMad > maxDepthMad) return false;
+            if (!double.IsNaN(w.Td) && !double.IsNaN(w.TdMad))
+            {
+                hasTopsideTension = true;
+                if (!BadRel(w.TdMad, w.Td)) hasUsableTopsideTension = true;
+            }
+            if (!double.IsNaN(w.Tp) && !double.IsNaN(w.TpMad))
+            {
+                hasTopsideTension = true;
+                if (!BadRel(w.TpMad, w.Tp)) hasUsableTopsideTension = true;
+            }
+            if (!double.IsNaN(w.Tdl) && !double.IsNaN(w.TdlMad))
+            {
+                hasTopsideTension = true;
+                if (!BadRel(w.TdlMad, w.Tdl)) hasUsableTopsideTension = true;
+            }
+
+            if (hasTopsideTension && !hasUsableTopsideTension) return false;
+
+            //if (w.BitDepthMad > maxDepthMad) return false;
+            //if (w.BottomHoleDepthMad > maxDepthMad) return false;
 
             return true;
         }
@@ -1133,14 +1657,30 @@ namespace DWIS.Service.WOBCorrections.Model
         static bool TryGetGammaModel(out double g1, out double g2, out double g3, out double sigmaGamma)
         {
             g1 = g2 = g3 = sigmaGamma = double.NaN;
-            if (RlsGamma.ResidualCount <= 0 || !IsFinitePositive(RlsGamma.ResidualStdDev)) return false;
+            if (GammaAdaptive.Count <= 0 || !IsFinitePositive(GammaAdaptive.StdError)) return false;
+            if (GammaAdaptive.Coef == null || GammaAdaptive.Coef.Length < 3) return false;
 
-            var b = RlsGamma.Beta;
-            g1 = b[0];
-            g2 = b[1];
-            g3 = b[2];
-            sigmaGamma = RlsGamma.ResidualStdDev;
+            g1 = GammaAdaptive.Coef[0];
+            g2 = GammaAdaptive.Coef[1];
+            g3 = GammaAdaptive.Coef[2];
+            sigmaGamma = GammaAdaptive.StdError;
             return true;
+        }
+
+        static bool TryGetAlphaModel(out double[] a)
+        {
+            a = Array.Empty<double>();
+            if (AlphaAdaptive.Count > 0 &&
+                double.IsFinite(AlphaAdaptive.A0) &&
+                double.IsFinite(AlphaAdaptive.A1) &&
+                double.IsFinite(AlphaAdaptive.A2) &&
+                double.IsFinite(AlphaAdaptive.A3) &&
+                double.IsFinite(AlphaAdaptive.A4))
+            {
+                a = new[] { AlphaAdaptive.A0, AlphaAdaptive.A1, AlphaAdaptive.A2, AlphaAdaptive.A3, AlphaAdaptive.A4 };
+                return true;
+            }
+            return false;
         }
 
         static double GetReferenceLevel(double measured, double modelConstant, double? initialEstimate)
@@ -1245,3 +1785,4 @@ namespace DWIS.Service.WOBCorrections.Model
                 : Median(values.Where(v => !double.IsNaN(v)).Select(v => Math.Abs(v - median)));
     }
 }
+
