@@ -31,10 +31,6 @@ var baseModel = new PhysicalModel(
         B2: annularAreaM2,
         B3: 4300.0,
         B4: 0.0),
-    Gamma: new GammaModel(
-        G1: 0.0,
-        G2: 0.0,
-        G3: 0.0),
     Hydraulics: new HydraulicConstants(
         DeltaPCoeff: 4.0e7));
 
@@ -93,12 +89,6 @@ for (int run = 1; run <= runsPerScenario; run++)
         string offBottomBhaCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_offbottom_rotating_bha.csv");
         string alphaDiffCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_alpha_fit_diff.csv");
         string alphaStreamDiffCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_alpha_stream_fit_diff.csv");
-        string offBottomGammaCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_offbottom_rotating_gamma.csv");
-        string gammaDiffCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_gamma_fit_diff.csv");
-        string offBottomGammaTpCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_offbottom_rotating_gamma_tp.csv");
-        string gammaTpDiffCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_gamma_tp_fit_diff.csv");
-        string offBottomGammaTdlCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_offbottom_rotating_gamma_tdl.csv");
-        string gammaTdlDiffCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_gamma_tdl_fit_diff.csv");
         string offBottomBetaTdCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_offbottom_rotating_beta_td.csv");
         string betaTdStreamDiffCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_beta_td_stream_fit_diff.csv");
         string offBottomBetaTpCsv = Path.Combine(AppContext.BaseDirectory, $"{scenario.Name}_run{run:00}_{stamp}_offbottom_rotating_beta_tp.csv");
@@ -116,15 +106,6 @@ for (int run = 1; run <= runsPerScenario; run++)
         WriteAlphaFitDifferencesCsv(alphaSituations, alphaFit, alphaDiffCsv);
         var alphaStreamFit = CalibratorCorrector.CalibrateAlphaStreamingAdaptive(alphaSituations);
         WriteAlphaStreamingFitDifferencesCsv(alphaStreamFit, alphaStreamDiffCsv);
-        var gammaSituations = WriteOffBottomRotatingGammaCsv(output, offBottomGammaCsv);
-        var gammaFit = CalibratorCorrector.CalibrateGammaFromSituations(gammaSituations);
-        WriteGammaFitDifferencesCsv(gammaSituations, gammaFit, gammaDiffCsv);
-        var gammaTpSituations = WriteOffBottomRotatingGammaTpCsv(output, offBottomGammaTpCsv);
-        var gammaTpFit = CalibratorCorrector.CalibrateGammaFromTpSituations(gammaTpSituations);
-        WriteGammaTpFitDifferencesCsv(gammaTpSituations, gammaTpFit, gammaTpDiffCsv);
-        var gammaTdlSituations = WriteOffBottomRotatingGammaTdlCsv(output, offBottomGammaTdlCsv);
-        var gammaTdlFit = CalibratorCorrector.CalibrateGammaFromTdlSituations(gammaTdlSituations);
-        WriteGammaTdlFitDifferencesCsv(gammaTdlSituations, gammaTdlFit, gammaTdlDiffCsv);
         var betaTdSituations = WriteOffBottomRotatingBetaCsv(output, offBottomBetaTdCsv, "td");
         var betaTdStream = WriteBetaStreamingFitDifferencesCsv(betaTdSituations, betaTdStreamDiffCsv);
         var betaTpSituations = WriteOffBottomRotatingBetaCsv(output, offBottomBetaTpCsv, "tp");
@@ -145,9 +126,6 @@ for (int run = 1; run <= runsPerScenario; run++)
         Console.WriteLine($"  topside csv (1s): {topsideCsv}");
         Console.WriteLine($"  downhole csv (10s): {downholeCsv}");
         Console.WriteLine($"  off-bottom rotating BHA csv: {offBottomBhaCsv}");
-        Console.WriteLine($"  off-bottom rotating gamma csv: {offBottomGammaCsv}");
-        Console.WriteLine($"  off-bottom rotating gamma Tp csv: {offBottomGammaTpCsv}");
-        Console.WriteLine($"  off-bottom rotating gamma Tdl csv: {offBottomGammaTdlCsv}");
         Console.WriteLine($"  off-bottom rotating beta Td csv: {offBottomBetaTdCsv}");
         Console.WriteLine($"  off-bottom rotating beta Tp csv: {offBottomBetaTpCsv}");
         Console.WriteLine($"  off-bottom rotating beta Tdl csv: {offBottomBetaTdlCsv}");
@@ -155,9 +133,6 @@ for (int run = 1; run <= runsPerScenario; run++)
         Console.WriteLine($"  in-slips Tp contexts csv: {slipsTpCsv}");
         Console.WriteLine($"  alpha fit diff csv: {alphaDiffCsv}");
         Console.WriteLine($"  alpha stream fit diff csv: {alphaStreamDiffCsv}");
-        Console.WriteLine($"  gamma fit diff csv: {gammaDiffCsv}");
-        Console.WriteLine($"  gamma Tp fit diff csv: {gammaTpDiffCsv}");
-        Console.WriteLine($"  gamma Tdl fit diff csv: {gammaTdlDiffCsv}");
         Console.WriteLine($"  beta Td stream fit diff csv: {betaTdStreamDiffCsv}");
         Console.WriteLine($"  beta Tp stream fit diff csv: {betaTpStreamDiffCsv}");
         Console.WriteLine($"  beta Tdl stream fit diff csv: {betaTdlStreamDiffCsv}");
@@ -165,9 +140,6 @@ for (int run = 1; run <= runsPerScenario; run++)
         Console.WriteLine($"  c stream fit diff csv: {cStreamDiffCsv}");
         Console.WriteLine($"  alpha fit: n={alphaFit.Count} meanErr={alphaFit.MeanError:G6} stdErr={alphaFit.StdError:G6} rmse={alphaFit.Rmse:G6}");
         Console.WriteLine($"  alpha stream fit: n={alphaStreamFit.Count} meanErr={alphaStreamFit.MeanError:G6} stdErr={alphaStreamFit.StdError:G6} rmse={alphaStreamFit.Rmse:G6}");
-        Console.WriteLine($"  gamma fit: n={gammaFit.Count} meanErr={gammaFit.MeanError:G6} stdErr={gammaFit.StdError:G6} rmse={gammaFit.Rmse:G6}");
-        Console.WriteLine($"  gamma Tp fit: n={gammaTpFit.Count} meanErr={gammaTpFit.MeanError:G6} stdErr={gammaTpFit.StdError:G6} rmse={gammaTpFit.Rmse:G6}");
-        Console.WriteLine($"  gamma Tdl fit: n={gammaTdlFit.Count} meanErr={gammaTdlFit.MeanError:G6} stdErr={gammaTdlFit.StdError:G6} rmse={gammaTdlFit.Rmse:G6}");
         Console.WriteLine($"  beta Td stream fit: n={betaTdStream.Count} meanErr={betaTdStream.MeanError:G6} stdErr={betaTdStream.StdError:G6} rmse={betaTdStream.Rmse:G6}");
         Console.WriteLine($"  beta Tp stream fit: n={betaTpStream.Count} meanErr={betaTpStream.MeanError:G6} stdErr={betaTpStream.StdError:G6} rmse={betaTpStream.Rmse:G6}");
         Console.WriteLine($"  beta Tdl stream fit: n={betaTdlStream.Count} meanErr={betaTdlStream.MeanError:G6} stdErr={betaTdlStream.StdError:G6} rmse={betaTdlStream.Rmse:G6}");
@@ -301,36 +273,37 @@ static void SimulatePhase(
             scenario.Model.Alpha.A3 * (pi - pa) +
             scenario.Model.Alpha.A4 * rho * q * q;
 
-        // Requested behavior: downhole at bit with lp=0 should remove weight/inclination influence by model setup.
-        double gammaTerm =
-            scenario.Model.Gamma.G1 * hp +
-            scenario.Model.Gamma.G2 * rho * hp +
-            scenario.Model.Gamma.G3 * rho * (l - scenario.SensorToBitDistanceM) * q * q;
+        double betaTerm =
+            scenario.Model.Beta.B0 * h +
+            scenario.Model.Beta.B1 * rho * h +
+            scenario.Model.Beta.B2 * (pi - pa) +
+            scenario.Model.Beta.B3 * rho * q * q +
+            scenario.Model.Beta.B4 * rho * l * q * q;
 
         // Requested: apply about 100 kN surface drop during drilling,
         // and unload it linearly during raise_1m over the first 0.5 m hoisting distance.
-        double wobAtBitN = 0.0;
+        double wobN = 0.0;
         if (connected && phase == "drill")
         {
-            wobAtBitN = 100_000.0;
+            wobN = 100_000.0;
         }
         else if (connected && phase == "tag_bottom")
         {
             // During tagging, WOB only builds after touching bottom.
-            wobAtBitN = tagWobTargetN * Math.Clamp(tagCompressionM / tagCompressionAtTargetM, 0.0, 1.0);
+            wobN = tagWobTargetN * Math.Clamp(tagCompressionM / tagCompressionAtTargetM, 0.0, 1.0);
         }
         else if (connected && phase == "raise_1m")
         {
             double liftedDistanceM = Math.Max(0.0, blockVelocity) * durationSeconds * p;
             double unloadFraction = Math.Clamp(liftedDistanceM / 0.5, 0.0, 1.0);
-            wobAtBitN = 100_000.0 * (1.0 - unloadFraction);
+            wobN = 100_000.0 * (1.0 - unloadFraction);
         }
 
         double commonNoise = NextNoise(random, connected ? 180.0 : 120.0);
-        double tBha = alphaPred - wobAtBitN + commonNoise;
+        double tBha = alphaPred - wobN + commonNoise;
         // During off_slip, support transfer from slips to hoisting should ramp the full transmitted tension.
         double supportFactor = (phase == "off_slip") ? p : 1.0;
-        double transmittedTrue = tBha + gammaTerm + standHookLoadOffsetN;
+        double transmittedTrue = betaTerm - wobN + standHookLoadOffsetN;
         double tTrue = connected ? supportFactor * transmittedTrue : 0.0;
 
         double signVz = Math.Sign(blockVelocity);
@@ -362,7 +335,7 @@ static void SimulatePhase(
             HoleDepthM: state.HoleDepth,
             InclinationRad: inclRad,
             RotationRadPerSec: state.OmegaRadPerSec,
-            TrueWobN: wobAtBitN,
+            TrueWobN: wobN,
             TdN: td,
             TpN: tp,
             TdlN: tdl));
@@ -384,7 +357,7 @@ static void SimulatePhase(
         state.ElapsedSeconds += topSideDt;
         state.Time = state.Time.AddSeconds(topSideDt);
 
-        if (phase == "tag_bottom" && wobAtBitN >= tagWobTargetN - 1e-9)
+        if (phase == "tag_bottom" && wobN >= tagWobTargetN - 1e-9)
         {
             // End tag phase as soon as target WOB is reached.
             break;
@@ -546,316 +519,6 @@ static void WriteAlphaFitDifferencesCsv(
             F(s.Hp, no),
             F(s.Rho, no),
             F(s.Theta, no),
-            F(s.Q, no)));
-    }
-}
-
-static List<CalibratorCorrector.GammaCalibrationSituation> WriteOffBottomRotatingGammaCsv(SimulationOutput output, string path)
-{
-    var no = NorwegianCsvCulture();
-    using var sw = new StreamWriter(path, false);
-    sw.WriteLine("TimestampUtc;ElapsedSeconds;TdN;BdN;TBhaN;RhoKgM3;HM;HpM;LM;LpM;Qm3s");
-    var situations = new List<CalibratorCorrector.GammaCalibrationSituation>();
-
-    if (output.Topside.Count == 0 || output.Downhole.Count == 0) return situations;
-
-    double depthMargin = ConfigurationForWOBCorrection.DepthMarginDefault;
-    double minOmega = ConfigurationForWOBCorrection.MinDownholeRotationalSpeedDefault;
-
-    var tops = output.Topside.OrderBy(s => s.TimestampUtc).ToList();
-    var dws = output.Downhole.OrderBy(s => s.TimestampUtc).ToList();
-
-    int tIdx = 0;
-    double? lastOmega = null;
-    DateTime? lastOmegaChangeTime = null;
-    foreach (var d in dws)
-    {
-        while (tIdx + 1 < tops.Count && tops[tIdx + 1].TimestampUtc <= d.TimestampUtc) tIdx++;
-        var t = tops[tIdx];
-
-        if (lastOmega.HasValue && Math.Abs(d.RotationRadPerSec - lastOmega.Value) > 1e-9)
-        {
-            lastOmegaChangeTime = d.TimestampUtc;
-        }
-        lastOmega = d.RotationRadPerSec;
-
-        bool offBottom = t.BitDepthM <= t.HoleDepthM - depthMargin;
-        bool rotating = d.RotationRadPerSec >= minOmega;
-        bool passedRefreshDelay =
-            !lastOmegaChangeTime.HasValue ||
-            (d.TimestampUtc - lastOmegaChangeTime.Value).TotalSeconds >= downholeDt;
-        if (!offBottom || !rotating || !passedRefreshDelay) continue;
-
-        double theta = t.InclinationRad;
-        double h = t.TvdAtBitM;
-        double hp = h - output.SensorToBitDistanceM * Math.Cos(theta);
-        double l = t.BitDepthM;
-        double lp = output.SensorToBitDistanceM;
-        double bd = output.Sensors.Bd;
-
-        sw.WriteLine(string.Join(";",
-            d.TimestampUtc.ToString("O", CultureInfo.InvariantCulture),
-            F(d.ElapsedSeconds, no),
-            F(t.TdN, no),
-            F(bd, no),
-            F(d.TensionBhaN, no),
-            F(t.RhoKgM3, no),
-            F(h, no),
-            F(hp, no),
-            F(l, no),
-            F(lp, no),
-            F(t.FlowM3s, no)));
-
-        situations.Add(new CalibratorCorrector.GammaCalibrationSituation(
-            Time: d.TimestampUtc,
-            Td: t.TdN,
-            Bd: bd,
-            TBha: d.TensionBhaN,
-            Rho: t.RhoKgM3,
-            H: h,
-            Hp: hp,
-            L: l,
-            Lp: lp,
-            Q: t.FlowM3s));
-    }
-
-    return situations;
-}
-
-static void WriteGammaFitDifferencesCsv(
-    IReadOnlyList<CalibratorCorrector.GammaCalibrationSituation> situations,
-    CalibratorCorrector.GammaCalibrationResult fit,
-    string path)
-{
-    var no = NorwegianCsvCulture();
-    using var sw = new StreamWriter(path, false);
-    sw.WriteLine("TimestampUtc;MeasuredLhsN;PredictedLhsN;ErrorN;TdN;BdN;TBhaN;RhoKgM3;HM;HpM;LM;LpM;Qm3s");
-    if (situations.Count == 0) return;
-
-    foreach (var s in situations)
-    {
-        double measured = s.Td - s.Bd - s.TBha;
-        double pred =
-            fit.G1 * s.Hp +
-            fit.G2 * s.Rho * s.Hp +
-            fit.G3 * s.Rho * (s.L - s.Lp) * s.Q * s.Q;
-        double err = measured - pred;
-
-        sw.WriteLine(string.Join(";",
-            s.Time.ToString("O", CultureInfo.InvariantCulture),
-            F(measured, no),
-            F(pred, no),
-            F(err, no),
-            F(s.Td, no),
-            F(s.Bd, no),
-            F(s.TBha, no),
-            F(s.Rho, no),
-            F(s.H, no),
-            F(s.Hp, no),
-            F(s.L, no),
-            F(s.Lp, no),
-            F(s.Q, no)));
-    }
-}
-
-static List<CalibratorCorrector.GammaCalibrationFromTpSituation> WriteOffBottomRotatingGammaTpCsv(SimulationOutput output, string path)
-{
-    var no = NorwegianCsvCulture();
-    using var sw = new StreamWriter(path, false);
-    sw.WriteLine("TimestampUtc;ElapsedSeconds;TpN;TBhaN;RhoKgM3;HpM;LM;LpM;Qm3s");
-    var situations = new List<CalibratorCorrector.GammaCalibrationFromTpSituation>();
-
-    if (output.Topside.Count == 0 || output.Downhole.Count == 0) return situations;
-
-    double depthMargin = ConfigurationForWOBCorrection.DepthMarginDefault;
-    double minOmega = ConfigurationForWOBCorrection.MinDownholeRotationalSpeedDefault;
-
-    var tops = output.Topside.OrderBy(s => s.TimestampUtc).ToList();
-    var dws = output.Downhole.OrderBy(s => s.TimestampUtc).ToList();
-
-    int tIdx = 0;
-    double? lastOmega = null;
-    DateTime? lastOmegaChangeTime = null;
-    foreach (var d in dws)
-    {
-        while (tIdx + 1 < tops.Count && tops[tIdx + 1].TimestampUtc <= d.TimestampUtc) tIdx++;
-        var t = tops[tIdx];
-
-        if (lastOmega.HasValue && Math.Abs(d.RotationRadPerSec - lastOmega.Value) > 1e-9)
-        {
-            lastOmegaChangeTime = d.TimestampUtc;
-        }
-        lastOmega = d.RotationRadPerSec;
-
-        bool offBottom = t.BitDepthM <= t.HoleDepthM - depthMargin;
-        bool rotating = d.RotationRadPerSec >= minOmega;
-        bool passedRefreshDelay =
-            !lastOmegaChangeTime.HasValue ||
-            (d.TimestampUtc - lastOmegaChangeTime.Value).TotalSeconds >= downholeDt;
-        if (!offBottom || !rotating || !passedRefreshDelay) continue;
-
-        double theta = t.InclinationRad;
-        double h = t.TvdAtBitM;
-        double hp = h - output.SensorToBitDistanceM * Math.Cos(theta);
-        double l = t.BitDepthM;
-        double lp = output.SensorToBitDistanceM;
-
-        sw.WriteLine(string.Join(";",
-            d.TimestampUtc.ToString("O", CultureInfo.InvariantCulture),
-            F(d.ElapsedSeconds, no),
-            F(t.TpN, no),
-            F(d.TensionBhaN, no),
-            F(t.RhoKgM3, no),
-            F(hp, no),
-            F(l, no),
-            F(lp, no),
-            F(t.FlowM3s, no)));
-
-        situations.Add(new CalibratorCorrector.GammaCalibrationFromTpSituation(
-            Time: d.TimestampUtc,
-            Tp: t.TpN,
-            TBha: d.TensionBhaN,
-            Rho: t.RhoKgM3,
-            Hp: hp,
-            L: l,
-            Lp: lp,
-            Q: t.FlowM3s));
-    }
-
-    return situations;
-}
-
-static List<CalibratorCorrector.GammaCalibrationFromTdlSituation> WriteOffBottomRotatingGammaTdlCsv(SimulationOutput output, string path)
-{
-    var no = NorwegianCsvCulture();
-    using var sw = new StreamWriter(path, false);
-    sw.WriteLine("TimestampUtc;ElapsedSeconds;TdlN;TBhaN;RhoKgM3;HpM;LM;LpM;Qm3s");
-    var situations = new List<CalibratorCorrector.GammaCalibrationFromTdlSituation>();
-
-    if (output.Topside.Count == 0 || output.Downhole.Count == 0) return situations;
-
-    double depthMargin = ConfigurationForWOBCorrection.DepthMarginDefault;
-    double minOmega = ConfigurationForWOBCorrection.MinDownholeRotationalSpeedDefault;
-
-    var tops = output.Topside.OrderBy(s => s.TimestampUtc).ToList();
-    var dws = output.Downhole.OrderBy(s => s.TimestampUtc).ToList();
-
-    int tIdx = 0;
-    double? lastOmega = null;
-    DateTime? lastOmegaChangeTime = null;
-    foreach (var d in dws)
-    {
-        while (tIdx + 1 < tops.Count && tops[tIdx + 1].TimestampUtc <= d.TimestampUtc) tIdx++;
-        var t = tops[tIdx];
-
-        if (lastOmega.HasValue && Math.Abs(d.RotationRadPerSec - lastOmega.Value) > 1e-9)
-        {
-            lastOmegaChangeTime = d.TimestampUtc;
-        }
-        lastOmega = d.RotationRadPerSec;
-
-        bool offBottom = t.BitDepthM <= t.HoleDepthM - depthMargin;
-        bool rotating = d.RotationRadPerSec >= minOmega;
-        bool passedRefreshDelay =
-            !lastOmegaChangeTime.HasValue ||
-            (d.TimestampUtc - lastOmegaChangeTime.Value).TotalSeconds >= downholeDt;
-        if (!offBottom || !rotating || !passedRefreshDelay) continue;
-
-        double theta = t.InclinationRad;
-        double h = t.TvdAtBitM;
-        double hp = h - output.SensorToBitDistanceM * Math.Cos(theta);
-        double l = t.BitDepthM;
-        double lp = output.SensorToBitDistanceM;
-
-        sw.WriteLine(string.Join(";",
-            d.TimestampUtc.ToString("O", CultureInfo.InvariantCulture),
-            F(d.ElapsedSeconds, no),
-            F(t.TdlN, no),
-            F(d.TensionBhaN, no),
-            F(t.RhoKgM3, no),
-            F(hp, no),
-            F(l, no),
-            F(lp, no),
-            F(t.FlowM3s, no)));
-
-        situations.Add(new CalibratorCorrector.GammaCalibrationFromTdlSituation(
-            Time: d.TimestampUtc,
-            Tdl: t.TdlN,
-            TBha: d.TensionBhaN,
-            Rho: t.RhoKgM3,
-            Hp: hp,
-            L: l,
-            Lp: lp,
-            Q: t.FlowM3s));
-    }
-
-    return situations;
-}
-
-static void WriteGammaTpFitDifferencesCsv(
-    IReadOnlyList<CalibratorCorrector.GammaCalibrationFromTpSituation> situations,
-    CalibratorCorrector.GammaCalibrationResult fit,
-    string path)
-{
-    var no = NorwegianCsvCulture();
-    using var sw = new StreamWriter(path, false);
-    sw.WriteLine("TimestampUtc;MeasuredLhsN;PredictedLhsN;ErrorN;TpN;TBhaN;RhoKgM3;HpM;LM;LpM;Qm3s");
-    if (situations.Count == 0) return;
-
-    foreach (var s in situations)
-    {
-        double measured = s.Tp - s.TBha;
-        double pred =
-            fit.G1 * s.Hp +
-            fit.G2 * s.Rho * s.Hp +
-            fit.G3 * s.Rho * (s.L - s.Lp) * s.Q * s.Q;
-        double err = measured - pred;
-
-        sw.WriteLine(string.Join(";",
-            s.Time.ToString("O", CultureInfo.InvariantCulture),
-            F(measured, no),
-            F(pred, no),
-            F(err, no),
-            F(s.Tp, no),
-            F(s.TBha, no),
-            F(s.Rho, no),
-            F(s.Hp, no),
-            F(s.L, no),
-            F(s.Lp, no),
-            F(s.Q, no)));
-    }
-}
-
-static void WriteGammaTdlFitDifferencesCsv(
-    IReadOnlyList<CalibratorCorrector.GammaCalibrationFromTdlSituation> situations,
-    CalibratorCorrector.GammaCalibrationResult fit,
-    string path)
-{
-    var no = NorwegianCsvCulture();
-    using var sw = new StreamWriter(path, false);
-    sw.WriteLine("TimestampUtc;MeasuredLhsN;PredictedLhsN;ErrorN;TdlN;TBhaN;RhoKgM3;HpM;LM;LpM;Qm3s");
-    if (situations.Count == 0) return;
-
-    foreach (var s in situations)
-    {
-        double measured = s.Tdl - s.TBha;
-        double pred =
-            fit.G1 * s.Hp +
-            fit.G2 * s.Rho * s.Hp +
-            fit.G3 * s.Rho * (s.L - s.Lp) * s.Q * s.Q;
-        double err = measured - pred;
-
-        sw.WriteLine(string.Join(";",
-            s.Time.ToString("O", CultureInfo.InvariantCulture),
-            F(measured, no),
-            F(pred, no),
-            F(err, no),
-            F(s.Tdl, no),
-            F(s.TBha, no),
-            F(s.Rho, no),
-            F(s.Hp, no),
-            F(s.L, no),
-            F(s.Lp, no),
             F(s.Q, no)));
     }
 }
@@ -1208,7 +871,7 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
     var dCur = dws[0];
     var no = NorwegianCsvCulture();
     using var sw = new StreamWriter(wobLogPath, false);
-    sw.WriteLine("TimestampUtc;ElapsedSeconds;Phase;TrueWobN;CorrectedDwobN;CorrectedSwobN;CorrectedSwobTd;CorrectedSwobTp;CorrectedSwobTdl;CorrectedSwobTdBHA;CorrectedSwobTpBHA;CorrectedSwobTdlBHA");
+    sw.WriteLine("TimestampUtc;ElapsedSeconds;Phase;TrueWobN;CorrectedDwobN;CorrectedSwobN;CorrectedSwobTd;CorrectedSwobTp;CorrectedSwobTdl");
     foreach (var s in tops)
     {
         while (dIdx + 1 < dws.Count && dws[dIdx + 1].TimestampUtc <= s.TimestampUtc)
@@ -1255,7 +918,6 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
 
         double[]? alphaNow = GetRlsBeta("RlsAlpha");
         double[]? betaNow = GetRlsBeta("RlsBeta");
-        double[]? gammaNow = GetRlsBeta("RlsGamma");
         double[]? bdB = GetRlsBeta("RlsBd");
         double[]? fpB = GetRlsBeta("RlsFp_WithTd");
         double[]? fdlB = GetRlsBeta("RlsFdl_WithTd");
@@ -1277,7 +939,7 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
         {
             fdlPred = fdlB[0] + fdlB[1] * z + fdlB[2] * signV;
         }
-        double bdPred = double.NaN;
+        double bdPred = 0;
         if (bdB is not null)
         {
             bdPred = bdB[0];
@@ -1320,29 +982,6 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
                 correctedSWOBTdl = -tdlCorr + betaPred;
             }
         }
-        double correctedSWOBTdBHA = double.NaN;
-        double correctedSWOBTpBHA = double.NaN;
-        double correctedSWOBTdlBHA = double.NaN;
-        if (gammaNow is not null && alphaNow is not null)
-        {
-            double hp = s.TvdAtBitM - output.SensorToBitDistanceM * Math.Cos(s.InclinationRad);
-            double gammaPred = gammaNow[0] * hp +
-                               gammaNow[1] * s.RhoKgM3 * hp +
-                               gammaNow[2] * s.RhoKgM3 * (s.BitDepthM - output.SensorToBitDistanceM) * q2;
-            double alphaPred = alphaNow[0] * Math.Cos(s.InclinationRad) + 
-                               alphaNow[1] * s.RhoKgM3 * Math.Cos(s.InclinationRad) + 
-                               alphaNow[2] * s.RhoKgM3 * hp +
-                               alphaNow[3] * (dCur.PressureInsidePa - dCur.PressureAnnulusPa) + 
-                               alphaNow[4] * s.RhoKgM3 * s.FlowM3s * s.FlowM3s;
-            if (shouldReportWob &&
-                dh.AverageRawWeight is not null &&
-                dh.AverageRawWeight.Value is not null)
-            {
-                correctedSWOBTdBHA = -tdCorr + gammaPred + alphaPred;
-                correctedSWOBTpBHA = -tpCorr + gammaPred + alphaPred;
-                correctedSWOBTdlBHA = -tdlCorr + gammaPred + alphaPred;
-            }
-        }
         sw.WriteLine(string.Join(";",
             s.TimestampUtc.ToString("O", CultureInfo.InvariantCulture),
             F(s.ElapsedSeconds, no),
@@ -1352,22 +991,17 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
             FNullable(correctedSWOB, no),
             FNullable(correctedSWOBTd, no),
             FNullable(correctedSWOBTp, no),
-            FNullable(correctedSWOBTdl, no),
-            FNullable(correctedSWOBTdBHA, no),
-            FNullable(correctedSWOBTpBHA, no),
-            FNullable(correctedSWOBTdlBHA, no)));
+            FNullable(correctedSWOBTdl, no)));
     }
 
     var alpha = GetRlsBeta("RlsAlpha");
     var beta = GetRlsBeta("RlsBeta");
-    var gamma = GetRlsBeta("RlsGamma");
     var bd = GetRlsBeta("RlsBd");
     var c = GetRlsBeta("RlsFp_WithTd");
     var d = GetRlsBeta("RlsFdl_WithTd");
 
     PrintRecovery("alpha", alpha, new[] { output.Model.Alpha.A0, output.Model.Alpha.A1, output.Model.Alpha.A2, output.Model.Alpha.A3, output.Model.Alpha.A4 });
     PrintRecovery("beta", beta, new[] { output.Model.Beta.B0, output.Model.Beta.B1, output.Model.Beta.B2, output.Model.Beta.B3, output.Model.Beta.B4 });
-    PrintRecovery("gamma", gamma, new[] { output.Model.Gamma.G1, output.Model.Gamma.G2, output.Model.Gamma.G3 });
     PrintRecovery("b_d", bd, new[] { output.Sensors.Bd });
     PrintRecovery("c", c, new[] { output.Sensors.C0, output.Sensors.C1, output.Sensors.C2, output.Sensors.C3, output.Sensors.C4, output.Sensors.C5 });
     PrintRecovery("d", d, new[] { output.Sensors.D0, output.Sensors.D1, output.Sensors.D2 });
@@ -1423,7 +1057,6 @@ static double[]? GetRlsBeta(string fieldName)
     {
         "RlsAlpha" => GetAlphaAdaptive(t),
         "RlsBeta" => GetAdaptiveCoef(t, "BetaAdaptive"),
-        "RlsGamma" => GetAdaptiveCoef(t, "GammaAdaptive"),
         "RlsBd" => GetAdaptiveCoef(t, "BdAdaptive"),
         "RlsFp_WithTd" => GetAdaptiveCoef(t, "FpWithTdAdaptive"),
         "RlsFdl_WithTd" => GetAdaptiveCoef(t, "FdlWithTdAdaptive"),
@@ -1524,9 +1157,8 @@ static double ToBar(double pa) => pa / 100000.0;
 
 public record AlphaModel(double A0, double A1, double A2, double A3, double A4);
 public record BetaModel(double B0, double B1, double B2, double B3, double B4);
-public record GammaModel(double G1, double G2, double G3);
 public record HydraulicConstants(double DeltaPCoeff);
-public record PhysicalModel(AlphaModel Alpha, BetaModel Beta, GammaModel Gamma, HydraulicConstants Hydraulics);
+public record PhysicalModel(AlphaModel Alpha, BetaModel Beta, HydraulicConstants Hydraulics);
 
 public record SensorModels(
     double Bd,

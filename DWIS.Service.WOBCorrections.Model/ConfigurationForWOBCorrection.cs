@@ -26,6 +26,7 @@ namespace DWIS.Service.WOBCorrections.Model
         public static readonly double DeltaTensionInSlipsDefault = 50000.0;
         public static readonly double MinDistanceInSlipsDefault = 0.1;
 
+        public string? BHADrillStringHostURL { get; set; }
         public TimeSpan? WindowDuration { get; set; } = WindowDurationDefault;
         public TimeSpan? MaxSurfaceAge { get; set; } = MaxSurfaceAgeDefault;
         public int? MinSurfaceSamplesPerWindow { get; set; } = MinSurfaceSamplesPerWindowDefault;

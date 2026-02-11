@@ -16,7 +16,7 @@ namespace DWIS.Service.WOBCorrections.Server
         private ComposerRecommendationsData ComposerRecommendationsData { get; set; } = new ComposerRecommendationsData();
         private CorrectedMeasurementsData CorrectedMeasurementsData { get; set; } = new CorrectedMeasurementsData();
         private CorrectedRecommendationsData CorrectedRecommendationsData { get; set; } = new CorrectedRecommendationsData();
-
+        private BHADrillStringData BHADrillStringData { get; set; } = new BHADrillStringData();
 
         public Worker(ILogger<IDWISWorker<ConfigurationForWOBCorrection>> logger, ILogger<DWISClientOPCF>? loggerDWISClient) : base(logger, loggerDWISClient)
         {
@@ -30,6 +30,7 @@ namespace DWIS.Service.WOBCorrections.Server
                 await RegisterQueries(ComposerRecommendationsData);
                 await RegisterQueries(DownholeMeasurementsData);
                 await RegisterQueries(TopSideMeasurementsData);
+                await RegisterQueries(BHADrillStringData);
                 await RegisterToBlackboard(CorrectedMeasurementsData);
                 await RegisterToBlackboard(CorrectedRecommendationsData);
                 await Loop(stoppingToken);
@@ -43,10 +44,16 @@ namespace DWIS.Service.WOBCorrections.Server
             {
                 try
                 {
+                    await ReadBlackboardAsync(BHADrillStringData, stoppingToken);
                     await ReadBlackboardAsync(TopSideMeasurementsData, stoppingToken);
                     await ReadBlackboardAsync(DownholeMeasurementsData, stoppingToken);
                     await ReadBlackboardAsync(ComposerRecommendationsData, stoppingToken);
                     double sensorDistanceToBit = 2.0;
+                    if (BHADrillStringData.BHADrillString is not null &&
+                        BHADrillStringData.BHADrillString.BHADrillString is not null)
+                    {
+                        // search for the sensor in the drill string and get the distance to bit, if not found use default value
+                    }
                     CalibratorCorrector.Process(Logger, DateTime.UtcNow, TopSideMeasurementsData, DownholeMeasurementsData, ComposerRecommendationsData, sensorDistanceToBit, Configuration, CorrectedMeasurementsData, CorrectedRecommendationsData);
 
                     await PublishBlackboardAsync(CorrectedMeasurementsData, stoppingToken);

@@ -99,48 +99,6 @@ namespace DWIS.Service.WOBCorrections.Model
             double Rmse,
             IReadOnlyList<AlphaStreamingPoint> Points);
 
-        public record GammaCalibrationSituation(
-            DateTime Time,
-            double Td,
-            double Bd,
-            double TBha,
-            double Rho,
-            double H,
-            double Hp,
-            double L,
-            double Lp,
-            double Q);
-
-        public record GammaCalibrationFromTpSituation(
-            DateTime Time,
-            double Tp,
-            double TBha,
-            double Rho,
-            double Hp,
-            double L,
-            double Lp,
-            double Q);
-
-        public record GammaCalibrationFromTdlSituation(
-            DateTime Time,
-            double Tdl,
-            double TBha,
-            double Rho,
-            double Hp,
-            double L,
-            double Lp,
-            double Q);
-
-        public record GammaCalibrationResult(
-            double G1,
-            double G2,
-            double G3,
-            int Count,
-            double MeanError,
-            double StdError,
-            double Mae,
-            double Rmse);
-
         public record BetaCalibrationSituation(
             DateTime Time,
             double TTopSideOff,
@@ -227,25 +185,12 @@ namespace DWIS.Service.WOBCorrections.Model
         // d0 + d1 z + d2 sign(dz) = Tdl
         // c0 + c1 z + c2 z^2 = Tp (Q=0 in unconnected)
 
-        // Shared gamma model in connected conditions:
-        // Td - b_d - TBHA = γ1 h_p + γ2 ρ h_p + γ3ρ(l-l_p)Q^2
-        // x = [h_p, ρh_p, ρ(l-l_p)Q^2]
-
-        // Artifacts without instrumented sub, after removing shared gamma contribution:
-        // Tp - TBHA - γ1 h_p - γ2 ρ h_p - γ3ρ(l-l_p)Q^2 = f_p(z,Q)
-        // x = [1,z,z^2,Q,Q^2,zQ]
-
-        // Tdl - TBHA - γ1 h_p - γ2 ρ h_p - γ3ρ(l-l_p)Q^2 = f_dl(z,sign)
-        // x = [1,z,sign]
-
         static readonly List<SurfaceSample> Surface = new(capacity: 50000);
         static readonly List<AlphaCalibrationSituation> AlphaSituations = new(capacity: 50000);
         static AlphaCalibrationResult AlphaAdaptive = new(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, 0, double.NaN, double.NaN, double.NaN, double.NaN);
         const int MaxAlphaSituations = 20000;
         static readonly List<LinearSituation> BetaSituations = new(capacity: 50000);
         static AdaptiveLinearResult BetaAdaptive = new(new double[5], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
-        static readonly List<LinearSituation> GammaSituations = new(capacity: 50000);
-        static AdaptiveLinearResult GammaAdaptive = new(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
         static readonly List<LinearSituation> BdSituations = new(capacity: 50000);
         static AdaptiveLinearResult BdAdaptive = new(new double[1], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
         static readonly List<LinearSituation> FpUnconnectedSituations = new(capacity: 50000);
@@ -277,7 +222,6 @@ namespace DWIS.Service.WOBCorrections.Model
                 Surface.Clear();
                 AlphaSituations.Clear();
                 BetaSituations.Clear();
-                GammaSituations.Clear();
                 BdSituations.Clear();
                 FpUnconnectedSituations.Clear();
                 FdlUnconnectedSituations.Clear();
@@ -290,7 +234,6 @@ namespace DWIS.Service.WOBCorrections.Model
                     double.NaN, double.NaN, double.NaN, double.NaN, double.NaN,
                     0, double.NaN, double.NaN, double.NaN, double.NaN);
                 BetaAdaptive = new AdaptiveLinearResult(new double[5], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
-                GammaAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
                 BdAdaptive = new AdaptiveLinearResult(new double[1], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
                 FpUnconnectedAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
                 FdlUnconnectedAdaptive = new AdaptiveLinearResult(new double[3], 0, double.NaN, double.NaN, double.NaN, double.NaN, 0, 0);
@@ -445,143 +388,6 @@ namespace DWIS.Service.WOBCorrections.Model
                 Mae: mae,
                 Rmse: rmseAll,
                 Points: points);
-        }
-
-        public static GammaCalibrationResult CalibrateGammaFromSituations(
-            IEnumerable<GammaCalibrationSituation> situations,
-            int minSamplesPerModel = 8,
-            double ridge = 1e-9)
-        {
-            if (situations is null) throw new ArgumentNullException(nameof(situations));
-
-            var linear = situations
-                .Where(s =>
-                    double.IsFinite(s.Td) &&
-                    double.IsFinite(s.Bd) &&
-                    double.IsFinite(s.TBha) &&
-                    double.IsFinite(s.Rho) &&
-                    double.IsFinite(s.H) &&
-                    double.IsFinite(s.Hp) &&
-                    double.IsFinite(s.L) &&
-                    double.IsFinite(s.Lp) &&
-                    double.IsFinite(s.Q))
-                .Select(s =>
-                {
-                    double x0 = s.Hp;
-                    double x1 = s.Rho * s.Hp;
-                    double x2 = s.Rho * (s.L - s.Lp) * s.Q * s.Q;
-                    double y = s.Td - s.Bd - s.TBha;
-                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, y);
-                })
-                .ToList();
-
-            if (linear.Count == 0)
-            {
-                return new GammaCalibrationResult(
-                    double.NaN, double.NaN, double.NaN, 0,
-                    double.NaN, double.NaN, double.NaN, double.NaN);
-            }
-
-            var fit = CalibrateLinearAdaptive(linear, dim: 3, minSamplesPerModel, ridge);
-            var g = fit.Coef ?? new double[3];
-
-            return new GammaCalibrationResult(
-                G1: g.Length > 0 ? g[0] : double.NaN,
-                G2: g.Length > 1 ? g[1] : double.NaN,
-                G3: g.Length > 2 ? g[2] : double.NaN,
-                Count: fit.Count,
-                MeanError: fit.MeanError,
-                StdError: fit.StdError,
-                Mae: fit.Mae,
-                Rmse: fit.Rmse);
-        }
-
-        // Specific gamma calibration from:
-        // Tp - TBHA = γ1 h_p + γ2 ρ h_p + γ3 ρ(l-l_p)Q^2 (+ residual artifact terms)
-        public static GammaCalibrationResult CalibrateGammaFromTpSituations(
-            IEnumerable<GammaCalibrationFromTpSituation> situations,
-            int minSamplesPerModel = 8,
-            double ridge = 1e-9)
-        {
-            if (situations is null) throw new ArgumentNullException(nameof(situations));
-
-            var linear = situations
-                .Where(s =>
-                    double.IsFinite(s.Tp) &&
-                    double.IsFinite(s.TBha) &&
-                    double.IsFinite(s.Rho) &&
-                    double.IsFinite(s.Hp) &&
-                    double.IsFinite(s.L) &&
-                    double.IsFinite(s.Lp) &&
-                    double.IsFinite(s.Q))
-                .Select(s =>
-                {
-                    double x0 = s.Hp;
-                    double x1 = s.Rho * s.Hp;
-                    double x2 = s.Rho * (s.L - s.Lp) * s.Q * s.Q;
-                    double y = s.Tp - s.TBha;
-                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, y);
-                })
-                .ToList();
-
-            return CalibrateGammaFromLinear(linear, minSamplesPerModel, ridge);
-        }
-
-        // Specific gamma calibration from:
-        // Tdl - TBHA = γ1 h_p + γ2 ρ h_p + γ3 ρ(l-l_p)Q^2 (+ residual artifact terms)
-        public static GammaCalibrationResult CalibrateGammaFromTdlSituations(
-            IEnumerable<GammaCalibrationFromTdlSituation> situations,
-            int minSamplesPerModel = 8,
-            double ridge = 1e-9)
-        {
-            if (situations is null) throw new ArgumentNullException(nameof(situations));
-
-            var linear = situations
-                .Where(s =>
-                    double.IsFinite(s.Tdl) &&
-                    double.IsFinite(s.TBha) &&
-                    double.IsFinite(s.Rho) &&
-                    double.IsFinite(s.Hp) &&
-                    double.IsFinite(s.L) &&
-                    double.IsFinite(s.Lp) &&
-                    double.IsFinite(s.Q))
-                .Select(s =>
-                {
-                    double x0 = s.Hp;
-                    double x1 = s.Rho * s.Hp;
-                    double x2 = s.Rho * (s.L - s.Lp) * s.Q * s.Q;
-                    double y = s.Tdl - s.TBha;
-                    return new LinearSituation(s.Time, new[] { x0, x1, x2 }, y);
-                })
-                .ToList();
-
-            return CalibrateGammaFromLinear(linear, minSamplesPerModel, ridge);
-        }
-
-        static GammaCalibrationResult CalibrateGammaFromLinear(
-            IReadOnlyList<LinearSituation> linear,
-            int minSamplesPerModel,
-            double ridge)
-        {
-            if (linear.Count == 0)
-            {
-                return new GammaCalibrationResult(
-                    double.NaN, double.NaN, double.NaN, 0,
-                    double.NaN, double.NaN, double.NaN, double.NaN);
-            }
-
-            var fit = CalibrateLinearAdaptive(linear, dim: 3, minSamplesPerModel, ridge);
-            var g = fit.Coef ?? new double[3];
-
-            return new GammaCalibrationResult(
-                G1: g.Length > 0 ? g[0] : double.NaN,
-                G2: g.Length > 1 ? g[1] : double.NaN,
-                G3: g.Length > 2 ? g[2] : double.NaN,
-                Count: fit.Count,
-                MeanError: fit.MeanError,
-                StdError: fit.StdError,
-                Mae: fit.Mae,
-                Rmse: fit.Rmse);
         }
 
         // Specific beta calibration from:
@@ -1201,15 +1007,6 @@ namespace DWIS.Service.WOBCorrections.Model
                     AlphaAdaptive = CalibrateAlphaFromSituations(AlphaSituations);
                 }
 
-                // ========= 1.b) Calibrate shared gamma terms =========
-                // If Td and downhole tension are both present:
-                // Td - b_d - TBHA = γ1 h_p + γ2ρ h_p + γ3ρ(l-l_p)Q^2
-                double[] xGamma = new[] { hp, rho * hp, visc };
-                if (isConnectedForCalibration && hasTd && hasDownholeTension)
-                {
-                    AppendAndRefit(GammaSituations, ref GammaAdaptive, w.EndTime, xGamma, w.Td - bd - w.Dh.TBha!.Value, 3, 8);
-                }
-
                 // ========= 2) Calibrate artifacts =========
                 // f_p (pins)
                 double fp;
@@ -1236,27 +1033,11 @@ namespace DWIS.Service.WOBCorrections.Model
                 }
                 else if (hasDownholeTension)
                 {
-                    // Without instrumented sub, remove shared gamma contribution and calibrate f_p / f_dl.
                     double[] xFp = { 1.0, z, z * z, Q, Q * Q, z * Q };
                     double[] xFdl = { 1.0, z, w.signVelocity };
 
                     double fpPred = PredictLinear(FpNoTdAdaptive.Coef, xFp);
                     double fdlPred = PredictLinear(FdlNoTdAdaptive.Coef, xFdl);
-
-                    if (isConnectedForCalibration)
-                    {
-                        if (!hasTd && hasTp) AppendAndRefit(GammaSituations, ref GammaAdaptive, w.EndTime, xGamma, w.Tp - fpPred + w.Dh.TBha!.Value, 3, 8);
-                        if (!hasTd && !hasTp && hasTdl) AppendAndRefit(GammaSituations, ref GammaAdaptive, w.EndTime, xGamma, w.Tdl - fdlPred + w.Dh.TBha!.Value, 3, 8);
-                    }
-
-                    var g = GammaAdaptive.Coef;
-                    double gammaTerm = g[0] * hp + g[1] * rho * hp + g[2] * visc;
-
-                    if (isConnectedForCalibration)
-                    {
-                        if (hasTp) AppendAndRefit(FpNoTdSituations, ref FpNoTdAdaptive, w.EndTime, xFp, w.Tp - w.Dh.TBha!.Value - gammaTerm, 6, 10);
-                        if (hasTdl) AppendAndRefit(FdlNoTdSituations, ref FdlNoTdAdaptive, w.EndTime, xFdl, w.Tdl - w.Dh.TBha!.Value - gammaTerm, 3, 8);
-                    }
 
                     fp = isUnconnected && FpUnconnectedAdaptive.Count > 0
                         ? PredictLinear(FpUnconnectedAdaptive.Coef, new[] { 1.0, z, z * z })
@@ -1312,15 +1093,12 @@ namespace DWIS.Service.WOBCorrections.Model
                     int nBeta = BetaAdaptive.Count;
                     double sigmaBd = BdAdaptive.StdError;
                     int nBd = BdAdaptive.Count;
-                    double sigmaGamma = GammaAdaptive.StdError;
-                    int nGamma = GammaAdaptive.Count;
                     logger?.LogInformation(
                         $"CalibratorCorrector: calibration updated. " +
                         $"state={(isUnconnected ? "unconnected" : "connected")} " +
                         $"sigma(alpha)={sigmaAlpha:G6} n={nAlpha} " +
                         $"sigma(beta)={sigmaBeta:G6} n={nBeta} " +
                         $"sigma(bd)={sigmaBd:G6} n={nBd} " +
-                        $"sigma(gamma)={sigmaGamma:G6} n={nGamma} " +
                         $"sigma(fp|slips)={FpUnconnectedAdaptive.StdError:G6} n={FpUnconnectedAdaptive.Count} " +
                         $"sigma(fdl|slips)={FdlUnconnectedAdaptive.StdError:G6} n={FdlUnconnectedAdaptive.Count} " +
                         $"sigma(fp|Td)={FpWithTdAdaptive.StdError:G6} n={FpWithTdAdaptive.Count} " +
@@ -1372,28 +1150,7 @@ namespace DWIS.Service.WOBCorrections.Model
                     double.NaN;
                 double sigma1 = CombineSigmas(sigmaSensor, BetaAdaptive.StdError);
 
-                // F_SWOB2 from README:
-                // F_SWOB2 = T_corr - gamma1*h_p + gamma2*rho*h_p + gamma3*rho*(l-l_p)*Q^2 + T_BHA
-                double fSwob2 = double.NaN;
-                double sigma2 = double.NaN;
-                if (hasDownholeTension && !double.IsNaN(TcorrForOutput))
-                {
-                    double g1, g2, g3, sigmaGamma;
-                    bool hasGamma = TryGetGammaModel(out g1, out g2, out g3, out sigmaGamma);
-                    if (hasGamma)
-                    {
-                        fSwob2 =
-                            TcorrForOutput
-                            - g1 * hp
-                            - g2 * rho * hp
-                            - g3 * visc
-                            - w.Dh.TBha!.Value;
-                        sigma2 = CombineSigmas(sigmaSensor, sigmaGamma);
-                    }
-                }
-
-                // Gaussian sensor fusion of SWOB estimates using inverse-variance weights
-                double correctedSurfaceWob = FuseGaussian(fSwob1, sigma1, fSwob2, sigma2, out var fusedSigma);
+                double correctedSurfaceWob = fSwob1;
                 correctedSurfaceWob *= -1; // apply sign convention (positive WOB means pushing down)
 
                 // WOB reporting policy:
@@ -1458,9 +1215,7 @@ namespace DWIS.Service.WOBCorrections.Model
                 {
                     logger?.LogInformation(
                         $"CalibratorCorrector: onBottom={onBottom} offBottom={offBottom} state={(isUnconnected ? "unconnected" : "connected")} omegaOk={omegaOk} " +
-                        $"SWOB1={fSwob1:G6} sigma1={sigma1:G6} " +
-                        $"SWOB2={fSwob2:G6} sigma2={sigma2:G6} " +
-                        $"SWOB={correctedSurfaceWob:G6} sigmaSWOB={fusedSigma:G6} " +
+                        $"SWOB={correctedSurfaceWob:G6} sigmaSWOB={sigma1:G6} " +
                         $"DWOB={(double.IsNaN(correctedDownholeWob) ? double.NaN : correctedDownholeWob):G6}");
                 }
             }
@@ -1639,9 +1394,6 @@ namespace DWIS.Service.WOBCorrections.Model
 
             if (hasTopsideTension && !hasUsableTopsideTension) return false;
 
-            //if (w.BitDepthMad > maxDepthMad) return false;
-            //if (w.BottomHoleDepthMad > maxDepthMad) return false;
-
             return true;
         }
 
@@ -1651,19 +1403,6 @@ namespace DWIS.Service.WOBCorrections.Model
             value = default;
             if (prop?.Value is null) return false;
             value = prop.Value.Value;
-            return true;
-        }
-
-        static bool TryGetGammaModel(out double g1, out double g2, out double g3, out double sigmaGamma)
-        {
-            g1 = g2 = g3 = sigmaGamma = double.NaN;
-            if (GammaAdaptive.Count <= 0 || !IsFinitePositive(GammaAdaptive.StdError)) return false;
-            if (GammaAdaptive.Coef == null || GammaAdaptive.Coef.Length < 3) return false;
-
-            g1 = GammaAdaptive.Coef[0];
-            g2 = GammaAdaptive.Coef[1];
-            g3 = GammaAdaptive.Coef[2];
-            sigmaGamma = GammaAdaptive.StdError;
             return true;
         }
 
@@ -1685,9 +1424,9 @@ namespace DWIS.Service.WOBCorrections.Model
 
         static double GetReferenceLevel(double measured, double modelConstant, double? initialEstimate)
         {
-            if (!double.IsNaN(modelConstant) && modelConstant > 0.0) return modelConstant;
-            if (initialEstimate.HasValue && initialEstimate.Value > 0.0) return initialEstimate.Value;
-            if (!double.IsNaN(measured) && measured > 0.0) return measured;
+            if (!double.IsNaN(modelConstant)) return modelConstant;
+            if (initialEstimate.HasValue) return initialEstimate.Value;
+            if (!double.IsNaN(measured)) return measured;
             return double.NaN;
         }
 

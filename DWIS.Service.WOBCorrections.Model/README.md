@@ -367,32 +367,11 @@ $$
 T_{dl} - T_d = f_{dl}(z,\dot z)
 $$
 
-Otherwise, if there are downhole tension measurements, the following equations are used:
-$$
-T_p - T_{BHA} - \gamma_1 h_{p} - \gamma_2 \rho h_{p} - \gamma_3 \rho (l - l_{p}) Q^2 = f_p(z,Q)
-$$
-$$
-T_{dl} - T_{BHA} - \gamma_1 h_{p} - \gamma_2 \rho h_{p}  - \gamma_3 \rho (l - l_{p}) Q^2= f_{dl}(z,\dot z)
-$$
-
-where
-* $\gamma_1$ corresponds to the calibration of weight and buoyancy  forces that are proportional to the vertical length of the drillsting above the downhole tension measurement sensor.
-* $\gamma_2$ corresponds to the calibration of weight and buoyancy  forces that are proportional to the product of density and the vertical length of the drillstring above the downhole tension measurement sensor.
-* $\gamma_3$ corresponds to the calibration of viscous pressure forces on the portion of drill-string above the tension measurement sensor.
-
 Uncertainties for the models $f_{dl}(z,\dot z)$ and $f_p(z,Q)$ are also calculated based on the differences between the predicted values and the observed values used for the calibration including both the unconnected but also when the drill-string is attached to the hoisting system.
 
 This allows also to determine the parameters of the flowrate depend contributions in the load pin tension measurement model, i.e., $c_3$, $c_4$ and $c_5$.
 
-Note that if there are both measurements from the load pins and from the deadline, both models are calibrated simultaneously because they share the same terms in $\gamma_1$, $\gamma_2$ and $\gamma_3$. If there is in addition a tension measured at an instrumented sub together with downhole tension measurements, then the terms $\gamma_1$, $\gamma_2$ and $\gamma_3$ are first calibrated using:
-
-$$
-T_d - b_d - T_{BHA} = \gamma_1 h_{p} + \gamma_2 \rho h_{p} + \gamma_3 \rho (l - l_{p}) Q^2
-$$
-
-As described above, the calibration of the parameters $c_0$, $c_1$, $c_2$, $c_4$, $c_5$, $d_0$, $d_1$, $d_2$, $\gamma_1$, $\gamma_2$ and $\gamma_3$ are preconditioned to an analysis of their sensitivity to the variability of $z$, $\mathrm{sign}(\dot z)$, $Q$, $h$ and $l$ (depending on which of those are relevant for the concerned model).
-
-An uncertainty of the model based on $\gamma_1$, $\gamma_2$ and $\gamma_3$ is also calculated using the differences between the predicted values and the measurements used to calibrate the model.
+As described above, the calibration of the parameters $c_0$, $c_1$, $c_2$, $c_4$, $c_5$, $d_0$, $d_1$ and $d_2$ are preconditioned to an analysis of their sensitivity to the variability of $z$, $\mathrm{sign}(\dot z)$, $Q$, $h$ and $l$ (depending on which of those are relevant for the concerned model).
 
 ---
 
@@ -430,16 +409,8 @@ $$
 And the corrected surface WOB is:
 
 $$
-F_{SWOB1} = T_{corr} - \beta_0 h - \beta_1 \rho h - \beta_2 (p_i-p_a) - \beta_3 \rho Q^2 - \beta_4 \rho l Q^2
+F_{SWOB} = T_{corr} - \beta_0 h - \beta_1 \rho h - \beta_2 (p_i-p_a) - \beta_3 \rho Q^2 - \beta_4 \rho l Q^2
 $$
-
-Alternatively, if there is a downhole tension that is measured and transmitted by high speed telementry, i.e., updated within less than 2 or 3s, and the model parameters $\gamma_1$, $\gamma_2$ and $\gamma_3$ are calibrated, the surface downhole WOB can be corrected using:
-
-$$
-F_{SWOB2} = T_{corr} - \gamma_1 h_{p} - \gamma_2 \rho h_{p} - \gamma_3 \rho (l - l_{p}) Q^2 - \alpha_0 \cos \theta - \alpha_1 \rho \cos \theta - \alpha_2 \rho h_{p} - \alpha_3 (p_i - p_a) - \alpha_4 \rho Q^2
-$$
-
-When both $F_{SWOB1}$ and $F_{SWOB2}$ are evaluated, the final surface WOB is calculated using sensor fusion. The sensor fusion simply uses the the two estimated values and their uncertainties to assess the most likely value value that would fit with the probability distributions from the two estimations. It also estimates its associated uncertainty.
 
 Properties:
 
