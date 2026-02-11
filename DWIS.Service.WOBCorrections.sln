@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.ModelSharedOut", "DWIS.Service.WOBCorrections.ModelSharedOut\DWIS.Service.WOBCorrections.ModelSharedOut.csproj", "{17A3C10B-8AB2-C9BA-293C-67523F8181DB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DWIS.Service.WOBCorrections.MeasurementGeneration", "DWIS.Service.WOBCorrections.MeasurementGeneration\DWIS.Service.WOBCorrections.MeasurementGeneration.csproj", "{6911CE79-E6E0-4CF3-BA81-32A56B9E407E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -63,6 +65,10 @@ Global
 		{17A3C10B-8AB2-C9BA-293C-67523F8181DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{17A3C10B-8AB2-C9BA-293C-67523F8181DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{17A3C10B-8AB2-C9BA-293C-67523F8181DB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6911CE79-E6E0-4CF3-BA81-32A56B9E407E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6911CE79-E6E0-4CF3-BA81-32A56B9E407E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6911CE79-E6E0-4CF3-BA81-32A56B9E407E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6911CE79-E6E0-4CF3-BA81-32A56B9E407E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

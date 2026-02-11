@@ -1,70 +1,96 @@
-# A Contextual Data Bridge to Publish the BHADrillString on the DWIS Blackboard
-This service publishes the bhadrillstring for the currently selected wellbore to the DWIS Blackboard. It fetches trajectories from the OSDC BHADrillString microservice and only publishes when the selected wellbore changes.
+# DWIS.Service.WOBCorrections.TestADCS
+
+Helper worker service used to verify that corrected WOB recommendation values are available on the DWIS Blackboard for ADCS consumption.
 
 ## What It Does
-- Subscribes to the DWIS Blackboard for the selected wellbore.
-- Queries the OSDC BHADrillString microservice for trajectories that match that wellbore.
-- Publishes the matching bhadrillstring to the DWIS Blackboard as a contextual data signal.
-- Repeats in a loop and reloads configuration periodically.
+
+This service acts as a lightweight monitor:
+1. Connects to the DWIS Blackboard.
+2. Subscribes to recommendation data models.
+3. Reads recommendation values on each loop tick.
+4. Logs both original and corrected recommended max WOB values.
+
+It does not publish corrections or modify values.
 
 ## Data Flow Summary
-1. Read the selected wellbore from the Blackboard.
-2. If the wellbore changed, fetch bhadrillstring summaries from the OSDC microservice.
-3. Find the bhadrillstring whose `WellBoreID` matches the selected wellbore and fetch the full bhadrillstring by ID.
-4. Publish the bhadrillstring to the Blackboard.
+
+Read from Blackboard:
+- `ComposerRecommendationsData.WOBRecommendedMaximum`
+- `CorrectedRecommendationsData.CorrectedWOBRecommendedMaximum`
+
+Output:
+- informational logs showing both values for side-by-side validation.
+
+## Typical Use Case
+
+Run this service together with:
+- `DWIS.Service.WOBCorrections.Server` (publishes corrected values)
+- source/publisher for composer recommendations
+
+Then inspect logs in `TestADCS` to verify corrected recommendations are present and updated.
+
+## Run Locally
+
+From repository root:
+
+```sh
+dotnet run --project DWIS.Service.WOBCorrections.TestADCS
+```
+
+Prerequisites:
+- reachable DWIS Blackboard endpoint
+- valid OPC UA client configuration at:
+  - `DWIS.Service.WOBCorrections.TestADCS/config/Quickstarts.ReferenceClient.Config.xml`
+
+## Expected Logs
+
+When values are available, the service logs lines such as:
+- `Composer Recommended Max WOB: ...`
+- `Corrected Recommended Max WOB: ...`
+
+If one value is missing, only the available line is logged.
 
 ## Configuration
-The service uses standard .NET configuration sources (appsettings, environment variables, user secrets).
 
-### Required
-- `BHADrillStringHostURL`: Base URL for the OSDC BHADrillString microservice.
+The project currently uses base `Configuration` from `DWIS.RigOS.Common.Worker` and standard .NET config sources:
+- `appsettings.json`
+- `appsettings.Development.json`
+- environment variables
+- user secrets
 
-The service appends `BHADrillString/api/` to this value. Make sure the URL ends with a `/` so the final address is correct.
-
-Example:
-```text
-BHADrillStringHostURL = https://dev.digiwells.no/
-```
-
-### OPC UA Client Configuration
-The OPC UA client configuration is provided in:
-`config/Quickstarts.ReferenceClient.Config.xml`
-
-The Docker image copies this file into `/app/config`. The current config auto-accepts untrusted certificates, which is intended for development only.
-
-## Running Locally
-Run from the project directory:
-```sh
-dotnet run
-```
-
-Ensure the following are reachable:
-- DWIS Blackboard OPC UA endpoint
-- OSDC BHADrillString microservice (`BHADrillStringHostURL`)
+Current appsettings files define logging levels only.
 
 ## Docker
-### Create a replicated DWIS Blackboard
+
+Build image from repository root:
+
 ```sh
-docker run -dit --name blackboard -P -p 48030:48030/tcp --hostname localhost digiwells/ddhubserver:latest --useHub --hubURL https://dwis.digiwells.no/blackboard/applications
+docker build -f DWIS.Service.WOBCorrections.TestADCS/Dockerfile -t dwis-wob-testadcs .
 ```
 
-### Run the bhadrillstring bridge
+Run container:
+
 ```sh
-docker run -dit --name DWISBHADrillStringBridge -v c:\Volumes\DWISContextualDataBHADrillString:/home digiwells/dwiscontextualdatabridgebhadrillstringserver:stable
+docker run -d --name dwis-wob-testadcs -v c:\Volumes\DWISTestADCS:/home dwis-wob-testadcs
 ```
+
+Container entrypoint:
+- `dotnet DWIS.Service.WOBCorrections.TestADCS.dll`
 
 ## Project Structure
-- `Program.cs`: Host bootstrap.
-- `Worker.cs`: Main loop; Blackboard and OSDC interactions.
-- `SelectedWellboreData.cs`: Blackboard query model for the selected wellbore.
-- `BHADrillStringData.cs`: Blackboard publish model for the bhadrillstring.
-- `ConfigurationForOSDC.cs`: Configuration model for this service.
+
+- `Program.cs`: host bootstrap (`AddHostedService<Worker>`).
+- `Worker.cs`: Blackboard read loop and logging.
+- `config/Quickstarts.ReferenceClient.Config.xml`: OPC UA client settings.
+- `appsettings*.json`: logging settings.
+- `Dockerfile`: container build/runtime definition.
 
 ## Troubleshooting
-- Verify `BHADrillStringHostURL` has a trailing `/`.
-- Check the OPC UA client cert store paths defined in `config/Quickstarts.ReferenceClient.Config.xml`.
-- If no bhadrillstring is published, confirm the selected wellbore contains a valid `WellBoreID` and the OSDC service exposes a matching bhadrillstring.
 
-## Notes
-- This service only publishes on wellbore changes; it does not continuously republish unchanged trajectories.
-- The OSDC BHADrillString microservice endpoint is derived from `BHADrillStringHostURL` and the fixed suffix `BHADrillString/api/`.
+- If no logs appear, verify Blackboard connection and OPC UA certificate settings.
+- If only composer values appear, confirm correction service is running and publishing corrected recommendations.
+- If only corrected values appear, confirm composer recommendation publisher is active.
+
+## Packaging
+
+This project targets `net8.0` and includes `README.md` and `LICENSE` in package metadata.

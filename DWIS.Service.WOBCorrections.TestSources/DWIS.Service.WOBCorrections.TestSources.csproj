@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DWIS.Service.WOBCorrections.MeasurementGeneration\DWIS.Service.WOBCorrections.MeasurementGeneration.csproj" />
     <ProjectReference Include="..\DWIS.Service.WOBCorrections.Model\DWIS.Service.WOBCorrections.Model.csproj" />
   </ItemGroup>
 

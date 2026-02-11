@@ -1,70 +1,120 @@
-# A Contextual Data Bridge to Publish the BHADrillString on the DWIS Blackboard
-This service publishes the bhadrillstring for the currently selected wellbore to the DWIS Blackboard. It fetches trajectories from the OSDC BHADrillString microservice and only publishes when the selected wellbore changes.
+# DWIS.Service.WOBCorrections.Server
+
+Worker service that performs automatic taring/correction of surface and downhole WOB signals and republishes corrected values for downstream consumers (including ADCS-facing recommendations).
 
 ## What It Does
-- Subscribes to the DWIS Blackboard for the selected wellbore.
-- Queries the OSDC BHADrillString microservice for trajectories that match that wellbore.
-- Publishes the matching bhadrillstring to the DWIS Blackboard as a contextual data signal.
-- Repeats in a loop and reloads configuration periodically.
+
+On each loop iteration, the service:
+1. Reads top-side measurements from the DWIS Blackboard.
+2. Reads downhole measurements from the DWIS Blackboard.
+3. Reads composer recommendations (e.g., max WOB recommendation).
+4. Reads contextual BHA drill string data.
+5. Runs `CalibratorCorrector.Process(...)` from `DWIS.Service.WOBCorrections.Model`.
+6. Publishes corrected measurements.
+7. Publishes corrected recommendations.
+8. Reloads configuration.
 
 ## Data Flow Summary
-1. Read the selected wellbore from the Blackboard.
-2. If the wellbore changed, fetch bhadrillstring summaries from the OSDC microservice.
-3. Find the bhadrillstring whose `WellBoreID` matches the selected wellbore and fetch the full bhadrillstring by ID.
-4. Publish the bhadrillstring to the Blackboard.
+
+Inputs queried from Blackboard:
+- `TopSideMeasurementsData`
+- `DownholeMeasurementsData`
+- `ComposerRecommendationsData`
+- `BHADrillStringData`
+
+Outputs published to Blackboard:
+- `CorrectedMeasurementsData`
+- `CorrectedRecommendationsData`
+
+## Input and Output Signals (High Level)
+
+Typical input channels include:
+- top-side: block position, bit depth, hole depth, flowrate, mud density, tension/hookload variants, surface WOB
+- downhole: average raw weight, string pressure, annulus pressure, rotational speed
+- composer: recommended max WOB
+
+Typical output channels include:
+- corrected surface WOB
+- corrected downhole WOB
+- corrected hookload at top drive / deadline
+- corrected max WOB recommendation
+
+## Sensor-to-Bit Distance
+
+The worker currently uses a default sensor-to-bit distance of `2.0 m` in the correction call.
+
+`Worker.cs` contains a placeholder for deriving this value from `BHADrillStringData`; if no extraction is implemented, the default is used.
 
 ## Configuration
-The service uses standard .NET configuration sources (appsettings, environment variables, user secrets).
 
-### Required
-- `BHADrillStringHostURL`: Base URL for the OSDC BHADrillString microservice.
+The service uses standard .NET configuration sources (`appsettings`, environment variables, user secrets).
 
-The service appends `BHADrillString/api/` to this value. Make sure the URL ends with a `/` so the final address is correct.
+Configuration model:
+- `DWIS.Service.WOBCorrections.Model/ConfigurationForWOBCorrection.cs`
 
-Example:
-```text
-BHADrillStringHostURL = https://dev.digiwells.no/
-```
+Key calibration parameters (defaults in code):
+- `WindowDuration`: `00:00:30`
+- `MaxSurfaceAge`: `00:10:00`
+- `MinSurfaceSamplesPerWindow`: `10`
+- `DepthMargin`: `0.5`
+- `MinDownholeRotationalSpeed`: `50 rpm` (stored in `rad/s`)
+- `MaxRelQMad`: `0.15`
+- `MaxRelTMad`: `0.25`
+- `MaxDepthMad`: `0.2`
+- `MinVelocityForMotion`: `1e-5`
+- `FactorThresholdInSlips`: `1.5`
+- `DeltaTensionInSlips`: `50000`
+- `MinDistanceInSlips`: `0.1`
 
-### OPC UA Client Configuration
-The OPC UA client configuration is provided in:
-`config/Quickstarts.ReferenceClient.Config.xml`
-
-The Docker image copies this file into `/app/config`. The current config auto-accepts untrusted certificates, which is intended for development only.
+Additional config field:
+- `BHADrillStringHostURL` (available in config model; useful in related components handling BHA sourcing)
 
 ## Running Locally
-Run from the project directory:
+
+From repository root:
+
 ```sh
-dotnet run
+dotnet run --project DWIS.Service.WOBCorrections.Server
 ```
 
-Ensure the following are reachable:
-- DWIS Blackboard OPC UA endpoint
-- OSDC BHADrillString microservice (`BHADrillStringHostURL`)
+Prerequisites:
+- reachable DWIS Blackboard endpoint
+- valid OPC UA client config at `DWIS.Service.WOBCorrections.Server/config/Quickstarts.ReferenceClient.Config.xml`
+- upstream services or test publishers providing the required input channels
 
 ## Docker
-### Create a replicated DWIS Blackboard
+
+Build image from repository root:
+
 ```sh
-docker run -dit --name blackboard -P -p 48030:48030/tcp --hostname localhost digiwells/ddhubserver:latest --useHub --hubURL https://dwis.digiwells.no/blackboard/applications
+docker build -f DWIS.Service.WOBCorrections.Server/Dockerfile -t dwis-wob-corrections-server .
 ```
 
-### Run the bhadrillstring bridge
+Run container:
+
 ```sh
-docker run -dit --name DWISBHADrillStringBridge -v c:\Volumes\DWISContextualDataBHADrillString:/home digiwells/dwiscontextualdatabridgebhadrillstringserver:stable
+docker run -d --name dwis-wob-corrections-server -v c:\Volumes\DWISWOBCorrections:/home dwis-wob-corrections-server
 ```
+
+The image copies OPC UA config to `/app/config` during build and starts with:
+- `dotnet DWIS.Service.WOBCorrections.Server.dll`
 
 ## Project Structure
-- `Program.cs`: Host bootstrap.
-- `Worker.cs`: Main loop; Blackboard and OSDC interactions.
-- `SelectedWellboreData.cs`: Blackboard query model for the selected wellbore.
-- `BHADrillStringData.cs`: Blackboard publish model for the bhadrillstring.
-- `ConfigurationForOSDC.cs`: Configuration model for this service.
+
+- `Program.cs`: host bootstrap (`AddHostedService<Worker>`).
+- `Worker.cs`: Blackboard query/publish loop and correction orchestration.
+- `BHADrillStringData.cs`: contextual drill-string query model.
+- `appsettings.json`: baseline logging config.
+- `config/Quickstarts.ReferenceClient.Config.xml`: OPC UA client config.
+- `Dockerfile`: container build/runtime definition.
 
 ## Troubleshooting
-- Verify `BHADrillStringHostURL` has a trailing `/`.
-- Check the OPC UA client cert store paths defined in `config/Quickstarts.ReferenceClient.Config.xml`.
-- If no bhadrillstring is published, confirm the selected wellbore contains a valid `WellBoreID` and the OSDC service exposes a matching bhadrillstring.
 
-## Notes
-- This service only publishes on wellbore changes; it does not continuously republish unchanged trajectories.
-- The OSDC BHADrillString microservice endpoint is derived from `BHADrillStringHostURL` and the fixed suffix `BHADrillString/api/`.
+- If no corrected values are published, verify all input signals are present on Blackboard.
+- If corrected values look unchanged, verify calibration windows are populated (sample density and signal variability matter).
+- If connection fails at startup, validate OPC UA certificates/endpoints in `config/Quickstarts.ReferenceClient.Config.xml`.
+- If recommendation correction is missing, confirm composer provides `WOBRecommendedMaximum`.
+
+## Packaging
+
+This project targets `net8.0` and includes `README.md` and `LICENSE` in package metadata.
