@@ -2,6 +2,7 @@ using DWIS.Client.ReferenceImplementation.OPCFoundation;
 using DWIS.RigOS.Common.Worker;
 using DWIS.Service.CorrectedSWOBCorrections.Model;
 using DWIS.Service.WOBCorrections.Model;
+using DWIS.Service.WOBCorrections.ModelShared;
 using Microsoft.Extensions.Configuration;
 using OSDC.DotnetLibraries.General.Common;
 using System.ComponentModel;
@@ -48,13 +49,70 @@ namespace DWIS.Service.WOBCorrections.Server
                     await ReadBlackboardAsync(TopSideMeasurementsData, stoppingToken);
                     await ReadBlackboardAsync(DownholeMeasurementsData, stoppingToken);
                     await ReadBlackboardAsync(ComposerRecommendationsData, stoppingToken);
-                    double sensorDistanceToBit = 2.0;
+                    double? sensorDistanceToBit = null;
                     if (BHADrillStringData.BHADrillString is not null &&
                         BHADrillStringData.BHADrillString.BHADrillString is not null)
                     {
+                        var drillString = BHADrillStringData.BHADrillString.BHADrillString;
                         // search for the sensor in the drill string and get the distance to bit, if not found use default value
+                        if (drillString.SensorsList is not null)
+                        {
+                            foreach (var sensor in drillString.SensorsList)
+                            {
+                                if (sensor is not null && sensor.DistanceFromBit is not null && (sensor.SensorType & DrillStringSensorTypes.Tension) != 0)
+                                {
+                                    sensorDistanceToBit = sensor.DistanceFromBit;
+                                    break;
+                                }
+                            }
+                        }
+                        if (sensorDistanceToBit is null && drillString.DrillStringSectionList is not null)
+                        {
+                            double dist = 0;
+                            foreach (var section in drillString.DrillStringSectionList)
+                            {
+                                if (section is not null && section.SectionComponentList is not null)
+                                {
+                                    double dist2 = 0;
+                                    foreach (var component in section.SectionComponentList)
+                                    {
+                                        if (component is not null && component.PartList is not null)
+                                        {
+                                            double dist3 = 0;
+                                            foreach (var part in component.PartList)
+                                            {
+                                                if (part is not null)
+                                                {
+                                                    if (false)
+                                                    {
+                                                        dist += dist2 + dist3 + 0;
+                                                        sensorDistanceToBit = dist;
+                                                        break;
+                                                    }
+                                                    dist3 += part.TotalLength;
+                                                }
+                                            }
+                                            if (sensorDistanceToBit is not null)
+                                            {
+                                                break;
+                                            }
+                                            dist2 += dist3;
+                                        }
+                                    }
+                                    if (sensorDistanceToBit is not null)
+                                    {
+                                        break;
+                                    }
+                                    dist += section.Count * dist2;
+                                }
+                            }
+                        }
                     }
-                    CalibratorCorrector.Process(Logger, DateTime.UtcNow, TopSideMeasurementsData, DownholeMeasurementsData, ComposerRecommendationsData, sensorDistanceToBit, Configuration, CorrectedMeasurementsData, CorrectedRecommendationsData);
+                    if (sensorDistanceToBit is null)
+                    {
+                        sensorDistanceToBit = 2.0;
+                    }
+                    CalibratorCorrector.Process(Logger, DateTime.UtcNow, TopSideMeasurementsData, DownholeMeasurementsData, ComposerRecommendationsData, sensorDistanceToBit.Value, Configuration, CorrectedMeasurementsData, CorrectedRecommendationsData);
 
                     await PublishBlackboardAsync(CorrectedMeasurementsData, stoppingToken);
                     await PublishBlackboardAsync(CorrectedRecommendationsData, stoppingToken);

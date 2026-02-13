@@ -84,20 +84,11 @@ Prerequisites:
 
 ## Docker
 
-Build image from repository root:
-
-```sh
-docker build -f DWIS.Service.WOBCorrections.Server/Dockerfile -t dwis-wob-corrections-server .
-```
-
 Run container:
 
 ```sh
-docker run -d --name dwis-wob-corrections-server -v c:\Volumes\DWISWOBCorrections:/home dwis-wob-corrections-server
+docker run -dit --name DWISWOBCorrections -v c:\Volumes\DWISServiceWOBCorrections:/home digiwells/dwisservicewobcorrectionsserver:stable
 ```
-
-The image copies OPC UA config to `/app/config` during build and starts with:
-- `dotnet DWIS.Service.WOBCorrections.Server.dll`
 
 ## Project Structure
 
