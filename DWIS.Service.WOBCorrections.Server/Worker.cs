@@ -258,12 +258,53 @@ namespace DWIS.Service.WOBCorrections.Server
             return new RealtimeDataSample
             {
                 TimestampUtc = timestampUtc,
-                TopSideMeasurementsData = JsonSerializer.SerializeToElement(TopSideMeasurementsData),
-                DownholeMeasurementsData = JsonSerializer.SerializeToElement(DownholeMeasurementsData),
-                ComposerRecommendationsData = JsonSerializer.SerializeToElement(ComposerRecommendationsData),
-                CorrectedMeasurementsData = JsonSerializer.SerializeToElement(CorrectedMeasurementsData),
-                CorrectedRecommendationsData = JsonSerializer.SerializeToElement(CorrectedRecommendationsData)
+                TopSideMeasurementsData = ExtractScalarSnapshot(TopSideMeasurementsData),
+                DownholeMeasurementsData = ExtractScalarSnapshot(DownholeMeasurementsData),
+                ComposerRecommendationsData = ExtractScalarSnapshot(ComposerRecommendationsData),
+                CorrectedMeasurementsData = ExtractScalarSnapshot(CorrectedMeasurementsData),
+                CorrectedRecommendationsData = ExtractScalarSnapshot(CorrectedRecommendationsData)
             };
+        }
+
+        private static Dictionary<string, double?> ExtractScalarSnapshot(object data)
+        {
+            var snapshot = new Dictionary<string, double?>();
+            PropertyInfo[] properties = data.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            foreach (var property in properties)
+            {
+                object? propertyValue = property.GetValue(data);
+                if (propertyValue is null)
+                {
+                    snapshot[property.Name] = null;
+                    continue;
+                }
+
+                PropertyInfo? valueProperty = propertyValue.GetType().GetProperty("Value", BindingFlags.Instance | BindingFlags.Public);
+                if (valueProperty is null)
+                {
+                    continue;
+                }
+
+                object? rawValue = valueProperty.GetValue(propertyValue);
+                if (rawValue is null)
+                {
+                    snapshot[property.Name] = null;
+                    continue;
+                }
+
+                if (rawValue is double valueAsDouble)
+                {
+                    snapshot[property.Name] = valueAsDouble;
+                    continue;
+                }
+
+                if (double.TryParse(rawValue.ToString(), out double parsedValue))
+                {
+                    snapshot[property.Name] = parsedValue;
+                }
+            }
+
+            return snapshot;
         }
 
         private sealed class RealtimeDataDumpPayload
@@ -276,11 +317,11 @@ namespace DWIS.Service.WOBCorrections.Server
         private sealed class RealtimeDataSample
         {
             public DateTimeOffset TimestampUtc { get; set; }
-            public JsonElement TopSideMeasurementsData { get; set; }
-            public JsonElement DownholeMeasurementsData { get; set; }
-            public JsonElement ComposerRecommendationsData { get; set; }
-            public JsonElement CorrectedMeasurementsData { get; set; }
-            public JsonElement CorrectedRecommendationsData { get; set; }
+            public Dictionary<string, double?> TopSideMeasurementsData { get; set; } = new Dictionary<string, double?>();
+            public Dictionary<string, double?> DownholeMeasurementsData { get; set; } = new Dictionary<string, double?>();
+            public Dictionary<string, double?> ComposerRecommendationsData { get; set; } = new Dictionary<string, double?>();
+            public Dictionary<string, double?> CorrectedMeasurementsData { get; set; } = new Dictionary<string, double?>();
+            public Dictionary<string, double?> CorrectedRecommendationsData { get; set; } = new Dictionary<string, double?>();
         }
     }
 }
