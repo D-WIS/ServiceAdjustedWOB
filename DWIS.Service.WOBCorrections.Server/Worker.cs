@@ -13,7 +13,7 @@ namespace DWIS.Service.WOBCorrections.Server
 {
     public class Worker : DWISWorker<ConfigurationForWOBCorrection>
     {
-        private TopSideMeasurementsData TopSideMeasurementsData { get; set; } = new TopSideMeasurementsData();
+        private TopSideMeasurementsReadable TopSideMeasurementsData { get; set; } = new TopSideMeasurementsReadable();
         private DownholeMeasurementsData DownholeMeasurementsData { get; set; } = new DownholeMeasurementsData();
         private ComposerRecommendationsData ComposerRecommendationsData { get; set; } = new ComposerRecommendationsData();
         private CorrectedMeasurementsData CorrectedMeasurementsData { get; set; } = new CorrectedMeasurementsData();

@@ -7,7 +7,7 @@ namespace DWIS.Service.WOBCorrections.TestAdvisor
 {
     public class Worker : DWISWorker<Configuration>
     {
-        private TopSideMeasurementsData TopSideMeasurementsData { get; set; } = new TopSideMeasurementsData();
+        private TopSideMeasurementsAssignable TopSideMeasurementsData { get; set; } = new TopSideMeasurementsAssignable();
         private DownholeMeasurementsData DownholeMeasurementsData { get; set; } = new DownholeMeasurementsData();
         private CorrectedMeasurementsData CorrectedMeasurementsData { get; set; } = new CorrectedMeasurementsData();
         private AdvisorRecommendationsData AdvisorRecommendationsData { get; set; } = new AdvisorRecommendationsData();

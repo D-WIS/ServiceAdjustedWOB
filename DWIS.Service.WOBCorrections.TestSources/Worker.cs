@@ -10,7 +10,7 @@ namespace DWIS.Service.WOBCorrections.TestSources
     public class Worker : DWISWorker<ConfigurationSources>
     {
 
-        private TopSideMeasurementsData TopSideMeasurementsData { get; set; } = new TopSideMeasurementsData();
+        private TopSideMeasurementsAssignable TopSideMeasurementsData { get; set; } = new TopSideMeasurementsAssignable();
         private DownholeMeasurementsData DownholeMeasurementsData { get; set; } = new DownholeMeasurementsData();
 
         private TimeSpan LoopSpanDownholeTelemetry { get; set; } = TimeSpan.FromSeconds(10.0);
@@ -76,7 +76,7 @@ namespace DWIS.Service.WOBCorrections.TestSources
             var output = new SimulationOutput(scenario.Name, run, scenario.SensorToBitDistanceM, scenario.Model, scenario.Sensors);
             MeasurementGenerator.GenerateSeries(random, scenario, state, output);
             CalibratorCorrector.ResetState();
-            var top = new TopSideMeasurementsData();
+            var top = new TopSideMeasurementsAssignable();
             var dh = new DownholeMeasurementsData();
             var composer = new ComposerRecommendationsData();
             var corrected = new CorrectedMeasurementsData();

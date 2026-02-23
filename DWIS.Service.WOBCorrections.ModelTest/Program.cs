@@ -631,7 +631,7 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
 {
     Console.WriteLine($"  calibration replay: {output.ScenarioName}");
     CalibratorCorrector.ResetState();
-    var top = new TopSideMeasurementsData();
+    var top = new TopSideMeasurementsReadable();
     var dh = new DownholeMeasurementsData();
     var composer = new ComposerRecommendationsData();
     var corrected = new CorrectedMeasurementsData();
@@ -656,17 +656,17 @@ static void ReplayCalibration(SimulationOutput output, string wobLogPath)
             dCur = dws[dIdx];
         }
 
-        SetScalar(top, nameof(TopSideMeasurementsData.BlockPosition), s.BlockPositionM);
-        SetScalar(top, nameof(TopSideMeasurementsData.BottomOfStringDepth), s.BitDepthM);
-        SetScalar(top, nameof(TopSideMeasurementsData.BottomHoleDepth), s.HoleDepthM);
-        SetScalar(top, nameof(TopSideMeasurementsData.BottomOfStringVerticalDepth), s.TvdAtBitM);
-        SetScalar(top, nameof(TopSideMeasurementsData.BottomOfStringInclination), s.InclinationRad);
-        SetScalar(top, nameof(TopSideMeasurementsData.FlowrateIn), s.FlowM3s);
-        SetScalar(top, nameof(TopSideMeasurementsData.DrillingFluidDensityIn), s.RhoKgM3);
-        SetScalar(top, nameof(TopSideMeasurementsData.MeasuredTensionInstrumentedSub), s.TdN);
-        SetScalar(top, nameof(TopSideMeasurementsData.HookLoadAtTopDrive), s.TpN);
-        SetScalar(top, nameof(TopSideMeasurementsData.HookLoadAtAnchor), s.TdlN);
-        SetScalar(top, nameof(TopSideMeasurementsData.SurfaceWeightOnBit), 0.0);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.BlockPosition), s.BlockPositionM);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.BottomOfStringDepth), s.BitDepthM);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.BottomHoleDepth), s.HoleDepthM);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.BottomOfStringVerticalDepth), s.TvdAtBitM);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.BottomOfStringInclination), s.InclinationRad);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.FlowrateIn), s.FlowM3s);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.DrillingFluidDensityIn), s.RhoKgM3);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.MeasuredTensionInstrumentedSub), s.TdN);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.HookLoadAtTopDrive), s.TpN);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.HookLoadAtAnchor), s.TdlN);
+        SetScalar(top, nameof(TopSideMeasurementsAssignable.SurfaceWeightOnBit), 0.0);
 
         SetScalar(dh, nameof(DownholeMeasurementsData.AverageRawWeight), dCur.TensionBhaN);
         SetScalar(dh, nameof(DownholeMeasurementsData.StringPressure), dCur.PressureInsidePa);

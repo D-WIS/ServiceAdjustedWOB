@@ -1,0 +1,223 @@
+﻿using DWIS.API.DTO;
+using DWIS.RigOS.Common.Worker;
+using DWIS.Vocabulary.Schemas;
+using OSDC.DotnetLibraries.Drilling.DrillingProperties;
+using OSDC.UnitConversion.Conversion.DrillingEngineering;
+using System.Reflection;
+
+namespace DWIS.Service.WOBCorrections.Model
+{
+    public class TopSideMeasurementsAssignable : DWISData
+    {
+        private static readonly Lazy<IReadOnlyDictionary<PropertyInfo, Dictionary<string, QuerySpecification>>> LocalSparQLQueries = new(BuildSparQLQueries(typeof(TopSideMeasurementsAssignable)));
+        private static readonly Lazy<IReadOnlyDictionary<PropertyInfo, ManifestFile>> LocalManifests = new(BuildManifests(typeof(TopSideMeasurementsAssignable), "TopSideManifest", "DWIS", "DWISService"));
+        public override Lazy<IReadOnlyDictionary<PropertyInfo, Dictionary<string, QuerySpecification>>> SparQLQueries { get => LocalSparQLQueries; }
+        public override Lazy<IReadOnlyDictionary<PropertyInfo, ManifestFile>> Manifests { get => LocalManifests; }
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("blockPosition")]
+        [SemanticFact("blockPosition", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("blockPosition#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("blockPosition#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("blockPosition#01", Verbs.Enum.HasDynamicValue, "blockPosition")]
+        [SemanticFact("blockPosition#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.HeightDrilling)]
+        [SemanticFact("movingAverageBlockPosition", Nouns.Enum.MovingAverage)]
+        [SemanticFact("blockPosition#01", Verbs.Enum.IsTransformationOutput, "movingAverageBlockPosition")]
+        [SemanticFact("elevator#01", Nouns.Enum.DrillPipeElevator)]
+        [SemanticFact("blockPosition#01", Verbs.Enum.IsPhysicallyLocatedAt, "elevator#01")]
+        [SemanticFact("blockPosition#01", Nouns.Enum.HookPosition)]
+        public ScalarProperty? BlockPosition { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("BOS_depth")]
+        [SemanticFact("BOS_depth", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("BOS_depth#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("BOS_depth#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("BOS_depth#01", Verbs.Enum.HasDynamicValue, "BOS_depth")]
+        [SemanticFact("BOS_depth#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.DepthDrilling)]
+        [SemanticFact("movingAverageBOS_depth", Nouns.Enum.MovingAverage)]
+        [SemanticFact("BOS_depth#01", Verbs.Enum.IsTransformationOutput, "movingAverageBOS_depth")]
+        [SemanticFact("curvilinearAbscissaFrame#01", Nouns.Enum.OneDimensionalCurviLinearReferenceFrame)]
+        [SemanticFact("BOS_depth#01", Verbs.Enum.HasReferenceFrame, "curvilinearAbscissaFrame#01")]
+        [SemanticFact("bos#01", Nouns.Enum.BottomOfStringReferenceLocation)]
+        [SemanticFact("BOS_depth#01", Verbs.Enum.IsPhysicallyLocatedAt, "bos#01")]
+        [SemanticFact("BOS_depth#01", Nouns.Enum.BitDepth)]
+        public ScalarProperty? BottomOfStringDepth { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("BH_depth")]
+        [SemanticFact("BH_depth", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("BH_depth#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("BH_depth#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("BH_depth#01", Verbs.Enum.HasDynamicValue, "BH_depth")]
+        [SemanticFact("BH_depth#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.DepthDrilling)]
+        [SemanticFact("movingAverageBH_depth", Nouns.Enum.MovingAverage)]
+        [SemanticFact("BH_depth#01", Verbs.Enum.IsTransformationOutput, "movingAverageBH_depth")]
+        [SemanticFact("curvilinearAbscissaFrame#01", Nouns.Enum.OneDimensionalCurviLinearReferenceFrame)]
+        [SemanticFact("BH_depth#01", Verbs.Enum.HasReferenceFrame, "curvilinearAbscissaFrame#01")]
+        [SemanticFact("bh#01", Nouns.Enum.HoleBottomLocation)]
+        [SemanticFact("BH_depth#01", Verbs.Enum.IsPhysicallyLocatedAt, "bh#01")]
+        [SemanticFact("BH_depth#01", Nouns.Enum.HoleDepth)]
+        public ScalarProperty? BottomHoleDepth { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("BOS_VerticalDepth")]
+        [SemanticFact("BOS_VerticalDepth", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("BOS_VerticalDepth#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("BOS_VerticalDepth#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("BOS_VerticalDepth#01", Verbs.Enum.HasDynamicValue, "BOS_VerticalDepth")]
+        [SemanticFact("BOS_VerticalDepth#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.DepthDrilling)]
+        [SemanticFact("movingAverageBOS_VerticalDepth", Nouns.Enum.MovingAverage)]
+        [SemanticFact("BOS_VerticalDepth#01", Verbs.Enum.IsTransformationOutput, "movingAverageBOS_VerticalDepth")]
+        [SemanticFact("verticalDirection#01", Nouns.Enum.VerticalDepthFrame)]
+        [SemanticFact("BOS_VerticalDepth#01", Verbs.Enum.HasReferenceFrame, "verticalDirection#01")]
+        [SemanticFact("bos#01", Nouns.Enum.BottomOfStringReferenceLocation)]
+        [SemanticFact("BOS_VerticalDepth#01", Verbs.Enum.IsPhysicallyLocatedAt, "bos#01")]
+        public ScalarProperty? BottomOfStringVerticalDepth { get; set; } = null;
+
+        // inclination
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("BOS_Inclination")]
+        [SemanticFact("BOS_Inclination", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("BOS_Inclination#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("BOS_Inclination#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("BOS_Inclination#01", Verbs.Enum.HasDynamicValue, "BOS_Inclination")]
+        [SemanticFact("BOS_Inclination#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.PlaneAngleDrilling)]
+        [SemanticFact("verticalDirection#01", Nouns.Enum.VerticalDepthFrame)]
+        [SemanticFact("BOS_Inclination#01", Verbs.Enum.IsMeasuredFromReferenceFrame, "verticalDirection#01")]
+        [SemanticFact("movingAverageBOS_Inclination", Nouns.Enum.MovingAverage)]
+        [SemanticFact("BOS_Inclination#01", Verbs.Enum.IsTransformationOutput, "movingAveragBOS_Inclinatione")]
+        [SemanticFact("bos#01", Nouns.Enum.BottomOfStringReferenceLocation)]
+        [SemanticFact("BOS_Inclination#01", Verbs.Enum.IsPhysicallyLocatedAt, "bos#01")]
+        public ScalarProperty? BottomOfStringInclination { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("Q_tos")]
+        [SemanticFact("Q_tos", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("Q_tos#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("Q_tos#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("Q_tos#01", Verbs.Enum.HasDynamicValue, "Q_tos")]
+        [SemanticFact("Q_tos#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.VolumetricFlowrateDrilling)]
+        [SemanticFact("movingAverageQ_tos", Nouns.Enum.MovingAverage)]
+        [SemanticFact("Q_tos#01", Verbs.Enum.IsTransformationOutput, "movingAverageQ_tos")]
+        [SemanticFact("topOfStringJunction#01", Nouns.Enum.TopOfStringJunction)]
+        [SemanticFact("inletHydraulicBranch#01", Nouns.Enum.HydraulicBranch)]
+        [SemanticFact("topOfStringJunction#01", Verbs.Enum.HasUpstreamBranch, "inletHydraulicBranch#01")]
+        [SemanticFact("Q_tos#01", Verbs.Enum.IsAssociatedToHydraulicBranch, "inletHydraulicBranch#01")]
+        [SemanticFact("Q_tos#01", Nouns.Enum.FlowRateIn)]
+        public ScalarProperty? FlowrateIn { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("densityIn")]
+        [SemanticFact("densityIn", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("densityIn#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("densityIn#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("densityIn#01", Verbs.Enum.HasDynamicValue, "densityIn")]
+        [SemanticFact("densityIn#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.MassDensityDrilling)]
+        [SemanticFact("movingAverageDensityIn", Nouns.Enum.MovingAverage)]
+        [SemanticFact("densityIn#01", Verbs.Enum.IsTransformationOutput, "movingAverageDensityIn")]
+        [SemanticFact("topOfStringJunction#01", Nouns.Enum.TopOfStringJunction)]
+        [SemanticFact("inletHydraulicBranch#01", Nouns.Enum.HydraulicBranch)]
+        [SemanticFact("topOfStringJunction#01", Verbs.Enum.HasUpstreamBranch, "inletHydraulicBranch#01")]
+        [SemanticFact("densityIn#01", Verbs.Enum.IsAssociatedToHydraulicBranch, "inletHydraulicBranch#01")]
+        [SemanticFact("densityIn#01", Nouns.Enum.DensityIn)]
+        public ScalarProperty? DrillingFluidDensityIn { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("hookLoad")]
+        [SemanticFact("hookLoad", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("hookLoad#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("hookLoad#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("hookLoad#01", Verbs.Enum.HasDynamicValue, "hookLoad")]
+        [SemanticFact("hookLoad#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.HookLoadDrilling)]
+        [SemanticFact("movingAverageHookLoad", Nouns.Enum.MovingAverage)]
+        [SemanticFact("hookLoad#01", Verbs.Enum.IsTransformationOutput, "movingAverageHookLoad")]
+        [SemanticFact("hook#01", Nouns.Enum.Hook)]
+        [SemanticFact("hookLoad#01", Verbs.Enum.IsPhysicallyLocatedAt, "hook#01")]
+        [SemanticFact("hookLoad#01", Nouns.Enum.HookLoad)]
+        public ScalarProperty? HookLoad { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("OmniViewMeasuredTension")]
+        [SemanticFact("OmniViewMeasuredTension", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("OmniViewMeasuredTension#01", Nouns.Enum.DirectMeasurement)]
+        [SemanticFact("OmniViewMeasuredTension#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.HasDynamicValue, "OmniViewMeasuredTension")]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.TensionDrilling)]
+        [SemanticFact("topSideTelemetry", Nouns.Enum.TopSideTelemetry)]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.IsTransmittedBy, "topSideTelemetry")]
+        [SemanticFact("OmniViewMeasuredTensionGaussianUncertainty#01", Nouns.Enum.GaussianUncertainty)]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.HasUncertainty, "OmniViewMeasuredTensionGaussianUncertainty#01")]
+        [SemanticFact("OmniViewMeasuredTensionGaussianUncertainty#01", Verbs.Enum.HasUncertaintyMean, "OmniViewMeasuredTension#01")]
+        [SemanticFact("SwivelSub#01", Nouns.Enum.SwivelSub)]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.IsMechanicallyLocatedAt, "SwivelSub#01")]
+        [SemanticFact("rotatingDriveSystem", Nouns.Enum.RotatingDriveSystemLocation)]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.IsPhysicallyLocatedAt, "rotatingDriveSystem")]
+        [SemanticFact("Petromar#01", Nouns.Enum.InstrumentationCompany)]
+        [SemanticFact("OmniViewMeasuredTension#01", Verbs.Enum.IsProvidedBy, "Petromar#01")]
+        public ScalarProperty? MeasuredTensionInstrumentedSub { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("hookLoadAtAnchor")]
+        [SemanticFact("hookLoadAtAnchor", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("hookLoadAtAnchor#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("hookLoadAtAnchor#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("hookLoadAtAnchor#01", Verbs.Enum.HasDynamicValue, "hookLoadAtAnchor")]
+        [SemanticFact("hookLoadAtAnchor#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.HookLoadDrilling)]
+        [SemanticFact("movingAverageHookLoadAtAnchor", Nouns.Enum.MovingAverage)]
+        [SemanticFact("hookLoadAtAnchor#01", Verbs.Enum.IsTransformationOutput, "movingAverageHookLoadAtAnchor")]
+        [SemanticFact("deadLineAnchor#01", Nouns.Enum.DeadLineAnchor)]
+        [SemanticFact("hookLoadAtAnchorAtTopDrive#01", Verbs.Enum.IsLocatedAtEquipment, "deadLineAnchor#01")]
+        [SemanticFact("hook#01", Nouns.Enum.Hook)]
+        [SemanticFact("hookLoadAtAnchor#01", Verbs.Enum.IsPhysicallyLocatedAt, "hook#01")]
+        [SemanticFact("hookLoadAtAnchor#01", Nouns.Enum.HookLoad)]
+        public ScalarProperty? HookLoadAtAnchor { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("hookLoadAtTopDrive")]
+        [SemanticFact("hookLoadAtTopDrive", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("hookLoadAtTopDrive#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("hookLoadAtTopDrive#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("hookLoadAtTopDrive#01", Verbs.Enum.HasDynamicValue, "hookLoadAtTopDrive")]
+        [SemanticFact("hookLoadAtTopDrive#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.HookLoadDrilling)]
+        [SemanticFact("movingAverageHookLoadAtTopDrive", Nouns.Enum.MovingAverage)]
+        [SemanticFact("hookLoadAtTopDrive#01", Verbs.Enum.IsTransformationOutput, "movingAverageHookLoadAtTopDrive")]
+        [SemanticFact("loadNut#01", Nouns.Enum.LoadNut)]
+        [SemanticFact("hookLoadAtTopDrive#01", Verbs.Enum.IsLocatedAtEquipment, "loadNut#01")]
+        [SemanticFact("hook#01", Nouns.Enum.Hook)]
+        [SemanticFact("hookLoadAtTopDrive#01", Verbs.Enum.IsPhysicallyLocatedAt, "hook#01")]
+        [SemanticFact("hookLoadAtTopDrive#01", Nouns.Enum.HookLoad)]
+        public ScalarProperty? HookLoadAtTopDrive { get; set; } = null;
+
+        [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
+        [Mandatory(CommonProperty.MandatoryType.General)]
+        [SemanticDiracVariable("WOB")]
+        [SemanticFact("WOB", Nouns.Enum.DynamicDrillingSignal)]
+        [SemanticFact("WOB#01", Nouns.Enum.DerivedMeasurement)]
+        [SemanticFact("WOB#01", Nouns.Enum.ContinuousDataType)]
+        [SemanticFact("WOB#01", Verbs.Enum.HasDynamicValue, "WOB")]
+        [SemanticFact("WOB#01", Verbs.Enum.IsOfMeasurableQuantity, DrillingPhysicalQuantity.QuantityEnum.WeightOnBitDrilling)]
+        [SemanticFact("movingAverageWOB", Nouns.Enum.MovingAverage)]
+        [SemanticFact("WOB#01", Verbs.Enum.IsTransformationOutput, "movingAverageWOB")]
+        [SemanticFact("tos#01", Nouns.Enum.TopOfStringReferenceLocation)]
+        [SemanticFact("WOB#01", Verbs.Enum.IsPhysicallyLocatedAt, "tos#01")]
+        [SemanticFact("bos#01", Nouns.Enum.BottomOfStringReferenceLocation)]
+        [SemanticFact("bh#01", Nouns.Enum.HoleBottomLocation)]
+        [SemanticFact("WOB#01", Verbs.Enum.IsDependentOn, "bos#01")]
+        [SemanticFact("WOB#01", Verbs.Enum.IsDependentOn, "bh#01")]
+        [SemanticFact("WOB#01", Nouns.Enum.WOB)]
+        public ScalarProperty? SurfaceWeightOnBit { get; set; } = null;
+
+    }
+}

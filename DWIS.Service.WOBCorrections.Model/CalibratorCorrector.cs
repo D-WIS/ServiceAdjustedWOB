@@ -836,7 +836,7 @@ namespace DWIS.Service.WOBCorrections.Model
         public static void Process(
             ILogger<IDWISWorker<ConfigurationForWOBCorrection>>? logger,
             DateTime now,
-            TopSideMeasurementsData topSide,
+            TopSideMeasurementsReadable topSide,
             DownholeMeasurementsData downhole,
             ComposerRecommendationsData composerRecommendationsData,
             double SensorToBitDistance,
@@ -1222,7 +1222,7 @@ namespace DWIS.Service.WOBCorrections.Model
         }
 
         // ====== Build surface sample ======
-        static bool TryBuildSurfaceSample(DateTime now, TopSideMeasurementsData topSide, out SurfaceSample sample)
+        static bool TryBuildSurfaceSample(DateTime now, TopSideMeasurementsReadable topSide, out SurfaceSample sample)
         {
             sample = default!;
 
@@ -1263,7 +1263,7 @@ namespace DWIS.Service.WOBCorrections.Model
         // ====== Build downhole sample ======
         static bool TryBuildDownholeSample(
             DateTime now,
-            TopSideMeasurementsData topSide,
+            TopSideMeasurementsReadable topSide,
             DownholeMeasurementsData downhole,
             out DownholeSample sample)
         {
