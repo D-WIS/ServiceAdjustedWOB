@@ -66,7 +66,6 @@ namespace DWIS.Service.WOBCorrections.Model
         [SemanticFact("BaseStarMeasuredStringPressure#01", Verbs.Enum.IsMechanicallyLocatedAt, "BHA#01")]
         [SemanticFact("Halliburton#01", Nouns.Enum.InstrumentationCompany)]
         [SemanticFact("BaseStarMeasuredStringPressure#01", Verbs.Enum.IsProvidedBy, "Halliburton#01")]
-        [OPCUANode("http://ddhub.no/BaseStarDataManifest/Variables/", "BaseStarDataManifest.", "StringPressure")]
         public ScalarProperty? StringPressure { get; set; } = null;
 
         [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
@@ -92,7 +91,6 @@ namespace DWIS.Service.WOBCorrections.Model
         [SemanticFact("BaseStarMeasuredAnnulusPressure#01", Verbs.Enum.IsMechanicallyLocatedAt, "BHA#01")]
         [SemanticFact("Halliburton#01", Nouns.Enum.InstrumentationCompany)]
         [SemanticFact("BaseStarMeasuredAnnulusPressure#01", Verbs.Enum.IsProvidedBy, "Halliburton#01")]
-        [OPCUANode("http://ddhub.no/BaseStarDataManifest/Variables/", "BaseStarDataManifest.", "AnnulusPressure")]
         public ScalarProperty? AnnulusPressure { get; set; } = null;
 
         [AccessToVariable(CommonProperty.VariableAccessType.Assignable)]
@@ -122,7 +120,6 @@ namespace DWIS.Service.WOBCorrections.Model
         [SemanticFact("Halliburton#01", Nouns.Enum.InstrumentationCompany)]
         [SemanticFact("BaseStarAverageRotationalSpeed#01", Verbs.Enum.IsProvidedBy, "Halliburton#01")]
         [SemanticFact("BaseStarRotationalSpeed#01", Verbs.Enum.IsProvidedBy, "Halliburton#01")]
-        [OPCUANode("http://ddhub.no/BaseStarDataManifest/Variables/", "BaseStarDataManifest.", "AverageRotationalSpeed")]
         public ScalarProperty? AverageRotationalSpeed { get; set; } = null;
 
     }

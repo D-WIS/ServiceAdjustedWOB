@@ -69,6 +69,29 @@ Key calibration parameters (defaults in code):
 Additional config field:
 - `BHADrillStringHostURL` (available in config model; useful in related components handling BHA sourcing)
 
+Realtime dump config fields:
+- `EnableRealtimeDataDump` (`bool`, default `true`)
+- `RealtimeDataDumpDirectory` (`string`, default `"/home"`)
+- `RealtimeDataDumpInterval` (`TimeSpan`, default `"01:00:00"`)
+
+## Realtime Process Data Dumping
+
+The worker keeps an in-process log of the following realtime payloads on each loop:
+- `TopSideMeasurementsData`
+- `DownholeMeasurementsData`
+- `ComposerRecommendationsData`
+- `CorrectedMeasurementsData`
+- `CorrectedRecommendationsData`
+
+It dumps this log to JSON files on fixed UTC boundary intervals (default every plain hour), then clears the in-memory log after a successful dump to avoid memory growth.
+
+Defaults:
+- dump directory: `/home`
+- dump interval: `01:00:00`
+
+Output file naming:
+- `wobcorrections-realtime-YYYYMMDDTHHMMSSZ.json`
+
 ## Running Locally
 
 From repository root:

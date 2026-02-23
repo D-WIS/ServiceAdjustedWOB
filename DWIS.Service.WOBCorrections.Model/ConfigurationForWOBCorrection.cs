@@ -26,6 +26,10 @@ namespace DWIS.Service.WOBCorrections.Model
         public static readonly double DeltaTensionInSlipsDefault = 50000.0;
         public static readonly double MinDistanceInSlipsDefault = 0.1;
 
+        public bool EnableRealtimeDataDump { get; set; } = true;
+        public string RealtimeDataDumpDirectory { get; set; } = "/home";
+        public TimeSpan RealtimeDataDumpInterval { get; set; } = TimeSpan.FromHours(1);
+
         public string? BHADrillStringHostURL { get; set; }
         public TimeSpan? WindowDuration { get; set; } = WindowDurationDefault;
         public TimeSpan? MaxSurfaceAge { get; set; } = MaxSurfaceAgeDefault;

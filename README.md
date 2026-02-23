@@ -77,6 +77,19 @@ Build the full solution:
 dotnet build DWIS.Service.WOBCorrections.sln
 ```
 
+## Realtime Dumping (Server)
+
+`DWIS.Service.WOBCorrections.Server` supports periodic dump of realtime process snapshots to the shared Docker volume path (`/home` by default).
+
+- Captured each loop: `TopSideMeasurementsData`, `DownholeMeasurementsData`, `ComposerRecommendationsData`, `CorrectedMeasurementsData`, `CorrectedRecommendationsData`
+- Default interval: every plain hour (`01:00:00`, UTC boundary aligned)
+- Buffer reset: in-memory log is cleared after each successful dump
+
+Configuration keys:
+- `EnableRealtimeDataDump`
+- `RealtimeDataDumpDirectory`
+- `RealtimeDataDumpInterval`
+
 ## Project Documentation
 
 Each project has its own detailed README:

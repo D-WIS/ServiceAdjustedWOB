@@ -1,1 +1,8 @@
-{"LoopDurationDownholeTelemetry":"00:00:10","LoopDuration":"00:00:01","GeneralBlackboard":"opc.tcp://localhost:48030"}
+{
+  "LoopDurationDownholeTelemetry": "00:00:10",
+  "LoopDuration": "00:00:01",
+  "GeneralBlackboard": "opc.tcp://localhost:48030",
+  "EnableRealtimeDataDump": true,
+  "RealtimeDataDumpDirectory": "/home",
+  "RealtimeDataDumpInterval": "01:00:00"
+}
